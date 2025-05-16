@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
+import api from "../lib/axios";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -73,17 +74,15 @@ export default function ResetPassword() {
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/auth/reset-password`,
+      const response = await api.post('/auth/reset-password', { token, newPassword },
         {
-          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, newPassword }),
+          withCredentials: true
         }
       );
 
-      const data = await response.json();
-      if (!response.ok) {
+      const data = response.data;
+      if (data.error) {
         throw new Error(data.error || "Error al restablecer la contraseña");
       }
 

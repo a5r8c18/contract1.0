@@ -1,17 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, ChangeEvent } from "react";
-import {
-  Settings,
-  FileText,
-  Users,
-  Lock,
-  Mail,
-  Bell,
-  Save,
-  User,
-  Phone,
-  Globe,
-} from "lucide-react";
-import { Button } from "../components/ui/button";
+import { Settings as SettingsIcon, FileText, Lock, Bell, Users, User, Mail, Phone, Globe, Save } from "lucide-react";
+import { useAuth } from "../components/AuthContext";
+import api from "../lib/axios";
 import {
   Card,
   CardContent,
@@ -28,15 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { useAuth } from "../components/AuthContext";
-
-interface UserData {
-  name: string;
-  email: string;
-  phone: string;
-  language: string;
-  avatar: string;
-}
+import { Button } from "../components/ui/button";
 
 interface SettingsData {
   contractPrefix: string;
@@ -50,109 +33,153 @@ interface SettingsData {
   allowEditing: boolean;
 }
 
-export default function ContractManagementSettings() {
-  const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+interface UserData {
+  name: string;
+  email: string;
+  phone: string;
+  language: Language;
+  avatar: string;
+}
+
+interface Errors {
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
+  phone?: string;
+  general?: string;
+}
+
+type Language = 'es' | 'en';
+
+const translations: Record<Language, { [key: string]: string }> = {
+  es: {
+    title: "Ajustes del Sistema de Contratos",
+    profile: "Perfil de Usuario",
+    general: "Generales",
+    security: "Seguridad",
+    notifications: "Notificaciones",
+    users: "Usuarios",
+    save: "Guardar Cambios",
+    saveUser: "Guardar datos de usuario",
+    loading: "Cargando...",
+    error: "Error",
+    retry: "Reintentar",
+    passwordMismatch: "Las contraseñas no coinciden",
+    invalidEmail: "Correo electrónico inválido",
+    invalidPassword: "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número",
+    invalidPhone: "Número de teléfono inválido",
+    saveSuccess: "Datos guardados exitosamente",
+    contractPrefix: "Prefijo de contrato",
+    autoNumbering: "Numeración automática",
+    expirationDays: "Días para expiración por defecto",
+    retentionYears: "Años de retención documental",
+    signatureMethod: "Método de firma",
+    allowEditing: "Permitir edición después de firmar",
+    approvalWorkflow: "Flujo de aprobación",
+    emailNotifications: "Notificaciones por correo",
+    notificationDays: "Días previos para notificación de vencimiento",
+    name: "Nombre completo",
+    email: "Correo electrónico",
+    phone: "Teléfono",
+    language: "Idioma preferido",
+    password: "Nueva contraseña",
+    confirmPassword: "Confirmar contraseña",
+    avatar: "Avatar",
+    uploadAvatar: "Sube una imagen (máx. 2MB)",
+  },
+  en: {
+    title: "Contract System Settings",
+    profile: "User Profile",
+    general: "General",
+    security: "Security",
+    notifications: "Notifications",
+    users: "Users",
+    save: "Save Changes",
+    saveUser: "Save user data",
+    loading: "Loading...",
+    error: "Error",
+    retry: "Retry",
+    passwordMismatch: "Passwords do not match",
+    invalidEmail: "Invalid email address",
+    invalidPassword: "Password must be at least 8 characters, with one uppercase, one lowercase, and one number",
+    invalidPhone: "Invalid phone number",
+    saveSuccess: "Data saved successfully",
+    contractPrefix: "Contract prefix",
+    autoNumbering: "Automatic numbering",
+    expirationDays: "Default expiration days",
+    retentionYears: "Document retention years",
+    signatureMethod: "Signature method",
+    allowEditing: "Allow editing after signing",
+    approvalWorkflow: "Approval workflow",
+    emailNotifications: "Email notifications",
+    notificationDays: "Days prior to expiration notification",
+    name: "Full name",
+    email: "Email address",
+    phone: "Phone",
+    language: "Preferred language",
+    password: "New password",
+    confirmPassword: "Confirm password",
+    avatar: "Avatar",
+    uploadAvatar: "Upload an image (max 2MB)",
+  },
+};
+
+const SettingsPage = () => {
+  const { token, email } = useAuth();
+  const [settings, setSettings] = useState<SettingsData>({
+    contractPrefix: "",
+    autoNumbering: false,
+    defaultExpirationDays: 30,
+    notificationDays: 7,
+    approvalWorkflow: "basic",
+    signatureMethod: "digital",
+    emailNotifications: true,
+    documentRetentionYears: 5,
+    allowEditing: false,
+  });
+  const [userData, setUserData] = useState<UserData>({
+    name: "",
+    email: "",
+    phone: "",
+    language: "es",
+    avatar: "",
+  });
+  const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState<"general" | "security" | "notifications" | "users">("general");
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<Errors>({});
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const { token, email, refreshProfile } = useAuth();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!token || !email) {
-        setError("No se encontró el token o el usuario no está autenticado");
-        setIsLoading(false);
-        return;
-      }
+  const t = translations[(userData.language || "es") as Language];
 
-      try {
-        console.log("Solicitando settings con token:", token);
-        // Fetch settings
-        const settingsResponse = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL}/settings`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        console.log(
-          "Respuesta settings:",
-          settingsResponse.status,
-          settingsResponse.statusText
-        );
-        if (!settingsResponse.ok) {
-          throw new Error("Error al obtener la configuración");
-        }
-        const settingsData = await settingsResponse.json();
-        console.log("Datos settings:", settingsData);
-        setSettings(settingsData);
-        console.log("Solicitando perfil con token:", token);
-        // Fetch user profile
-        const profileResponse = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL}/auth/profile`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        console.log(
-          "Respuesta perfil:",
-          profileResponse.status,
-          profileResponse.statusText
-        );
-        if (!profileResponse.ok) {
-          throw new Error("Error al obtener el perfil");
-        }
-        const profileData = await profileResponse.json();
-        console.log("Datos perfil:", profileData);
-        // Validar que el email coincide con el del usuario autenticado
-        if (profileData.email !== email) {
-          throw new Error(
-            "Los datos del perfil no corresponden al usuario autenticado"
-          );
-        }
-        setUserData(profileData);
-        setAvatarPreview(profileData.avatar);
-      } catch (err: unknown) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Error en el servidor";
-        console.error("Error completo:", err);
-        setError(errorMessage);
-        // No eliminar el token a menos que sea un error de autenticación
-        if (err instanceof Error && err.message.includes("no autenticado")) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("userEmail");
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
 
-    fetchData();
-  }, [token, email]);
+  const validatePassword = (password: string) => {
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
+    return passwordRegex.test(password);
+  };
+
+  const validatePhone = (phone: string) => {
+    const phoneRegex = /^\+?\d{8,15}$/;
+    return phoneRegex.test(phone);
+  };
 
   const handleSettingsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setSettings((prev) => ({
-      ...prev!,
+      ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
   };
 
   const handleSwitchChange = (name: string, checked: boolean) => {
     setSettings((prev) => ({
-      ...prev!,
+      ...prev,
       [name]: checked,
     }));
   };
@@ -160,28 +187,58 @@ export default function ContractManagementSettings() {
   const handleUserDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setUserData((prev) => ({
-      ...prev!,
+      ...prev,
       [name]: value,
     }));
+    // Validar en tiempo real
+    if (name === "email" && value && !validateEmail(value)) {
+      setErrors((prev) => ({ ...prev, email: t.invalidEmail }));
+    } else if (name === "email") {
+      setErrors((prev) => ({ ...prev, email: undefined }));
+    }
+    if (name === "phone" && value && !validatePhone(value)) {
+      setErrors((prev) => ({ ...prev, phone: t.invalidPhone }));
+    } else if (name === "phone") {
+      setErrors((prev) => ({ ...prev, phone: undefined }));
+    }
   };
 
   const handleAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (file && file.size <= 2 * 1024 * 1024) { // Máx 2MB
       setAvatarFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatarPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
+    } else {
+      setErrors((prev) => ({ ...prev, general: "La imagen debe ser menor a 2MB" }));
     }
   };
 
   const handleUserSave = async () => {
-    if (!userData || !token) return;
+    setErrors({});
+    if (!userData || !token) {
+      setErrors({ general: t.error });
+      return;
+    }
 
+    // Validaciones
+    if (!validateEmail(userData.email)) {
+      setErrors({ email: t.invalidEmail });
+      return;
+    }
+    if (password && !validatePassword(password)) {
+      setErrors({ password: t.invalidPassword });
+      return;
+    }
     if (password && password !== confirmPassword) {
-      setError("Las contraseñas no coinciden");
+      setErrors({ confirmPassword: t.passwordMismatch });
+      return;
+    }
+    if (userData.phone && !validatePhone(userData.phone)) {
+      setErrors({ phone: t.invalidPhone });
       return;
     }
 
@@ -198,104 +255,101 @@ export default function ContractManagementSettings() {
         formData.append("avatar", avatarFile);
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/auth/profile`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        }
-      );
+      const response = await api.patch('/auth/profile', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(
-          data.message || "Error al guardar los datos del usuario"
-        );
-      }
-
-      const updatedProfile = await response.json();
-      // Validar que el email del perfil actualizado coincide
+      const updatedProfile = response.data;
       if (updatedProfile.email !== email) {
-        throw new Error(
-          "Los datos del perfil actualizado no corresponden al usuario autenticado"
-        );
+        throw new Error("Los datos del perfil no corresponden al usuario autenticado");
       }
       setUserData(updatedProfile);
       setAvatarPreview(updatedProfile.avatar);
       setPassword("");
       setConfirmPassword("");
       setAvatarFile(null);
-      setError("");
-      refreshProfile(); // Trigger profile refresh for other components
-      alert("Datos de usuario guardados exitosamente");
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Error en el servidor";
-      setError(errorMessage);
-      localStorage.removeItem("token");
-      localStorage.removeItem("userEmail");
+      setErrors({});
+      alert(t.saveSuccess);
+    } catch (err: any) {
+      setErrors({ general: err.message || t.error });
     }
   };
 
   const handleSave = async () => {
-    if (!settings || !token) return;
+    if (!settings || !token) {
+      setErrors({ general: t.error });
+      return;
+    }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/settings`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(settings),
-        }
-      );
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || "Error al guardar la configuración");
-      }
-
-      setError("");
-      alert("Configuración guardada exitosamente");
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Error en el servidor";
-      setError(errorMessage);
-      localStorage.removeItem("token");
-      localStorage.removeItem("userEmail");
+      await api.patch('/settings', settings);
+      setErrors({});
+      alert(t.saveSuccess);
+    } catch (err: any) {
+      setErrors({ general: err.message || t.error });
     }
   };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!token || !email) {
+        setErrors({ general: t.error });
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const [settingsResponse, profileResponse] = await Promise.all([
+          api.get('/settings'),
+          api.get('/auth/profile'),
+        ]);
+
+        const settingsData = settingsResponse.data;
+        const profileData = profileResponse.data;
+
+        if (profileData.email !== email) {
+          throw new Error("Los datos del perfil no corresponden al usuario autenticado");
+        }
+
+        setSettings(settingsData);
+        setUserData(profileData);
+        setAvatarPreview(profileData.avatar);
+      } catch (err: any) {
+        setErrors({ general: err.message || t.error });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [token, email, t]);
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
-        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
+        <p className="text-gray-600 dark:text-gray-400">{t.loading}</p>
       </div>
     );
   }
 
-  if (error) {
+  if (errors.general && Object.keys(errors).length === 1) {
     return (
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
         <Card className="max-w-4xl mx-auto bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 shadow-lg">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-              Error
+              {t.error}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-red-500 mb-4">{error}</p>
+            <p className="text-red-500 mb-4">{errors.general}</p>
             <Button
               onClick={() => window.location.reload()}
               className="bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white"
             >
-              Reintentar
+              {t.retry}
             </Button>
           </CardContent>
         </Card>
@@ -303,68 +357,37 @@ export default function ContractManagementSettings() {
     );
   }
 
-  if (!settings || !userData) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 md:p-8 transition-colors duration-300">
       <Card className="max-w-4xl mx-auto bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 shadow-lg">
         <CardHeader>
           <div className="flex items-center space-x-3">
-            <Settings className="h-6 w-6 text-gray-700 dark:text-gray-200" />
+            <SettingsIcon className="h-6 w-6 text-gray-700 dark:text-gray-200" />
             <CardTitle className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-              Ajustes del Sistema de Contratos
+              {t.title}
             </CardTitle>
           </div>
         </CardHeader>
 
         <CardContent>
           <div className="flex flex-wrap border-b border-gray-200 dark:border-gray-700 mb-6">
-            <button
-              onClick={() => setActiveTab("general")}
-              className={`px-4 py-2 font-medium flex items-center space-x-2 ${
-                activeTab === "general"
-                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              }`}
-            >
-              <FileText className="h-4 w-4" />
-              <span>Generales</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("security")}
-              className={`px-4 py-2 font-medium flex items-center space-x-2 ${
-                activeTab === "security"
-                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              }`}
-            >
-              <Lock className="h-4 w-4" />
-              <span>Seguridad</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("notifications")}
-              className={`px-4 py-2 font-medium flex items-center space-x-2 ${
-                activeTab === "notifications"
-                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              }`}
-            >
-              <Bell className="h-4 w-4" />
-              <span>Notificaciones</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("users")}
-              className={`px-4 py-2 font-medium flex items-center space-x-2 ${
-                activeTab === "users"
-                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              }`}
-            >
-              <Users className="h-4 w-4" />
-              <span>Usuarios</span>
-            </button>
+            {["general", "security", "notifications", "users"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as typeof activeTab)}
+                className={`px-4 py-2 font-medium flex items-center space-x-2 ${
+                  activeTab === tab
+                    ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                }`}
+              >
+                {tab === "general" && <FileText className="h-4 w-4" />}
+                {tab === "security" && <Lock className="h-4 w-4" />}
+                {tab === "notifications" && <Bell className="h-4 w-4" />}
+                {tab === "users" && <Users className="h-4 w-4" />}
+                <span>{t[tab]}</span>
+              </button>
+            ))}
           </div>
 
           <div className="space-y-6">
@@ -376,7 +399,7 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <FileText className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Prefijo de contrato</span>
+                    <span>{t.contractPrefix}</span>
                   </Label>
                   <Input
                     id="contractPrefix"
@@ -393,14 +416,12 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <FileText className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Numeración automática</span>
+                    <span>{t.autoNumbering}</span>
                   </Label>
                   <Switch
                     id="autoNumbering"
                     checked={settings.autoNumbering}
-                    onCheckedChange={(checked: boolean) =>
-                      handleSwitchChange("autoNumbering", checked)
-                    }
+                    onCheckedChange={(checked) => handleSwitchChange("autoNumbering", checked)}
                   />
                 </div>
 
@@ -410,7 +431,7 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <FileText className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Días para expiración por defecto</span>
+                    <span>{t.expirationDays}</span>
                   </Label>
                   <Input
                     type="number"
@@ -428,7 +449,7 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <FileText className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Años de retención documental</span>
+                    <span>{t.retentionYears}</span>
                   </Label>
                   <Input
                     type="number"
@@ -447,20 +468,18 @@ export default function ContractManagementSettings() {
                 <div>
                   <Label className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200">
                     <Lock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Método de firma</span>
+                    <span>{t.signatureMethod}</span>
                   </Label>
                   <Select
                     value={settings.signatureMethod}
-                    onValueChange={(value) =>
-                      setSettings({ ...settings, signatureMethod: value })
-                    }
+                    onValueChange={(value) => setSettings({ ...settings, signatureMethod: value })}
                   >
                     <SelectTrigger className="w-[280px] bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700">
                       <SelectValue placeholder="Seleccione método de firma" />
                     </SelectTrigger>
                     <SelectContent className="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700">
-                      <SelectItem value="digital">Firma digital</SelectItem>
-                      <SelectItem value="manual">Firma manual</SelectItem>
+                      <SelectItem value="digital">{t.signatureMethod} digital</SelectItem>
+                      <SelectItem value="manual">{t.signatureMethod} manual</SelectItem>
                       <SelectItem value="both">Ambos métodos</SelectItem>
                     </SelectContent>
                   </Select>
@@ -472,27 +491,23 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <Lock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Permitir edición después de firmar</span>
+                    <span>{t.allowEditing}</span>
                   </Label>
                   <Switch
                     id="allowEditing"
                     checked={settings.allowEditing}
-                    onCheckedChange={(checked: boolean) =>
-                      handleSwitchChange("allowEditing", checked)
-                    }
+                    onCheckedChange={(checked) => handleSwitchChange("allowEditing", checked)}
                   />
                 </div>
 
                 <div>
                   <Label className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200">
                     <Lock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Flujo de aprobación</span>
+                    <span>{t.approvalWorkflow}</span>
                   </Label>
                   <Select
                     value={settings.approvalWorkflow}
-                    onValueChange={(value) =>
-                      setSettings({ ...settings, approvalWorkflow: value })
-                    }
+                    onValueChange={(value) => setSettings({ ...settings, approvalWorkflow: value })}
                   >
                     <SelectTrigger className="w-[280px] bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700">
                       <SelectValue placeholder="Seleccione flujo de aprobación" />
@@ -515,14 +530,12 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <Mail className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Notificaciones por correo</span>
+                    <span>{t.emailNotifications}</span>
                   </Label>
                   <Switch
                     id="emailNotifications"
                     checked={settings.emailNotifications}
-                    onCheckedChange={(checked: boolean) =>
-                      handleSwitchChange("emailNotifications", checked)
-                    }
+                    onCheckedChange={(checked) => handleSwitchChange("emailNotifications", checked)}
                   />
                 </div>
 
@@ -532,7 +545,7 @@ export default function ContractManagementSettings() {
                     className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                   >
                     <Bell className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Días previos para notificación de vencimiento</span>
+                    <span>{t.notificationDays}</span>
                   </Label>
                   <Input
                     type="number"
@@ -555,7 +568,7 @@ export default function ContractManagementSettings() {
                       className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                     >
                       <User className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Nombre completo</span>
+                      <span>{t.name}</span>
                     </Label>
                     <Input
                       id="name"
@@ -572,7 +585,7 @@ export default function ContractManagementSettings() {
                       className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                     >
                       <Mail className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Correo electrónico</span>
+                      <span>{t.email}</span>
                     </Label>
                     <Input
                       id="email"
@@ -582,6 +595,7 @@ export default function ContractManagementSettings() {
                       onChange={handleUserDataChange}
                       className="max-w-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700"
                     />
+                    {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
                   </div>
 
                   <div>
@@ -590,7 +604,7 @@ export default function ContractManagementSettings() {
                       className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                     >
                       <Phone className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Teléfono</span>
+                      <span>{t.phone}</span>
                     </Label>
                     <Input
                       id="phone"
@@ -600,18 +614,17 @@ export default function ContractManagementSettings() {
                       onChange={handleUserDataChange}
                       className="max-w-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700"
                     />
+                    {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
                   </div>
 
                   <div>
                     <Label className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200">
                       <Globe className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Idioma preferido</span>
+                      <span>{t.language}</span>
                     </Label>
                     <Select
                       value={userData.language}
-                      onValueChange={(value) =>
-                        setUserData({ ...userData, language: value })
-                      }
+                      onValueChange={(value: Language) => setUserData({ ...userData, language: value })}
                     >
                       <SelectTrigger className="w-[280px] bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700">
                         <SelectValue placeholder="Seleccione un idioma" />
@@ -619,7 +632,6 @@ export default function ContractManagementSettings() {
                       <SelectContent className="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700">
                         <SelectItem value="es">Español</SelectItem>
                         <SelectItem value="en">Inglés</SelectItem>
-                        <SelectItem value="fr">Francés</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -630,7 +642,7 @@ export default function ContractManagementSettings() {
                       className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                     >
                       <Lock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Nueva contraseña</span>
+                      <span>{t.password}</span>
                     </Label>
                     <Input
                       id="password"
@@ -640,6 +652,7 @@ export default function ContractManagementSettings() {
                       className="max-w-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700"
                       placeholder="Dejar en blanco para no cambiar"
                     />
+                    {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
                   </div>
 
                   <div>
@@ -648,7 +661,7 @@ export default function ContractManagementSettings() {
                       className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200"
                     >
                       <Lock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      <span>Confirmar contraseña</span>
+                      <span>{t.confirmPassword}</span>
                     </Label>
                     <Input
                       id="confirmPassword"
@@ -658,13 +671,14 @@ export default function ContractManagementSettings() {
                       className="max-w-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700"
                       placeholder="Repita la nueva contraseña"
                     />
+                    {errors.confirmPassword && <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>}
                   </div>
                 </div>
 
                 <div>
                   <Label className="flex items-center space-x-2 mb-2 text-gray-700 dark:text-gray-200">
                     <User className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span>Avatar</span>
+                    <span>{t.avatar}</span>
                   </Label>
                   <div className="flex items-center space-x-4">
                     <img
@@ -680,9 +694,7 @@ export default function ContractManagementSettings() {
                         onChange={handleAvatarChange}
                         className="max-w-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 border-gray-300 dark:border-gray-700"
                       />
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Sube una imagen (máx. 2MB)
-                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t.uploadAvatar}</p>
                     </div>
                   </div>
                 </div>
@@ -693,7 +705,7 @@ export default function ContractManagementSettings() {
                     className="bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white"
                   >
                     <Save className="h-4 w-4 mr-2" />
-                    Guardar datos de usuario
+                    {t.saveUser}
                   </Button>
                 </div>
               </div>
@@ -706,7 +718,7 @@ export default function ContractManagementSettings() {
                   className="bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white"
                 >
                   <Save className="h-4 w-4 mr-2" />
-                  Guardar cambios
+                  {t.save}
                 </Button>
               </div>
             )}
@@ -715,4 +727,6 @@ export default function ContractManagementSettings() {
       </Card>
     </div>
   );
-}
+};
+
+export default SettingsPage;

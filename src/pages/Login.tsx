@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { useAuth } from "../components/AuthContext";
+import api from "../lib/axios";
+import axios from 'axios';
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -58,95 +60,73 @@ const Login = () => {
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/auth/login`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email, password }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Error en el inicio de sesión");
-      }
-
-      const data = await response.json();
-      // Almacenar el token y el email en el contexto
-      setToken(data.access_token, email);
-      // Redirigir a la página de dashboard
-      navigate("/dashboard");
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "No se pudo iniciar sesión. Intenta de nuevo.";
-      setErrors({
-        email: "",
-        password: "",
-        general: errorMessage,
+      const response = await api.post('/auth/login', {
+        email,
+        password,
+      }, {
+        timeout: parseInt(import.meta.env.VITE_API_TIMEOUT || '10000'),
       });
+
+      // Assuming the API returns a token
+      const { access_token } = response.data;
+
+      // Store token and user data
+      setToken(access_token, email);
+      // Redirect to dashboard or home
+      navigate('/dashboard');
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const errorMessage = error.response?.data?.message || error.message || "An error occurred. Please try again.";
+        setErrors(prev => ({ ...prev, general: errorMessage }));
+      } else {
+        setErrors(prev => ({ ...prev, general: "An error occurred. Please try again." }));
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md border border-gray-200 shadow-lg">
-        <CardHeader className="space-y-4">
-          <div className="flex justify-center">
-            <img
-              src={import.meta.env.VITE_LOGO_PATH || "/images.png"}
-              alt="Logo"
-              className="h-25 w-auto"
-            />
-          </div>
-          <CardTitle className="text-2xl font-bold text-center text-gray-800">
-            Iniciar Sesión
-          </CardTitle>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-center">Iniciar Sesión</CardTitle>
         </CardHeader>
-
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Field */}
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-700">
-                Correo Electrónico
-              </Label>
+            {errors.general && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                {errors.general}
+              </div>
+            )}
+            <div>
+              <Label htmlFor="email">Correo Electrónico</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
                 <Input
-                  type="email"
                   id="email"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={`pl-10 ${errors.email ? "border-red-500" : ""}`}
+                  className="mt-1 block w-full pl-10"
                   placeholder="tu@correo.com"
-                  disabled={isLoading}
                 />
               </div>
               {errors.email && (
-                <p className="text-red-500 text-sm">{errors.email}</p>
+                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
               )}
             </div>
 
-            {/* Password Field */}
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-700">
-                Contraseña
-              </Label>
+            <div>
+              <Label htmlFor="password">Contraseña</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
                 <Input
-                  type={showPassword ? "text" : "password"}
                   id="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`pl-10 pr-10 ${
+                  className={`mt-1 block w-full pr-10 pl-10 ${
                     errors.password ? "border-red-500" : ""
                   }`}
                   placeholder="********"

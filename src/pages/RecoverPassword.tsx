@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { Mail } from "lucide-react";
+import api from "../lib/axios";
 
 export default function RecoverPassword() {
   const [email, setEmail] = useState("");
@@ -44,17 +45,15 @@ export default function RecoverPassword() {
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/auth/recover-password`,
+      const response = await api.post('/auth/recover-password', { email },
         {
-          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
+          withCredentials: true
         }
       );
 
-      const data = await response.json();
-      if (!response.ok) {
+      const data = response.data;
+      if (response.status !== 200) {
         throw new Error(
           data.error || "Error al enviar el enlace de recuperación"
         );

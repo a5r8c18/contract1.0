@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useRef, useState } from "react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas-pro";
+import api from "../lib/axios"; // Importa la instancia de Axios
 
 const Arrendamiento = () => {
   const section1Ref = useRef<HTMLDivElement>(null); // Cláusulas I-V
@@ -85,6 +87,7 @@ const Arrendamiento = () => {
   });
 
   const [isEditing, setIsEditing] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Function to check if the form is complete
   const isFormComplete = Object.values(formData).every((value) => {
@@ -136,13 +139,25 @@ const Arrendamiento = () => {
     });
   };
 
-  const handleSave = () => {
-    setIsEditing(false);
-    alert("Datos guardados correctamente");
+  const handleSave = async () => {
+    if (!isFormComplete) {
+      setErrorMessage("Por favor, completa todos los campos del formulario.");
+      return;
+    }
+
+    try {
+      await api.post('/arrendamiento', formData);
+      setIsEditing(false);
+      setErrorMessage(null);
+      alert("Datos guardados correctamente en el servidor.");
+    } catch (error: any) {
+      setErrorMessage(error.message || "Error al guardar los datos en el servidor.");
+    }
   };
 
   const handleEdit = () => {
     setIsEditing(true);
+    setErrorMessage(null);
   };
 
   const exportToPDF = async () => {
@@ -155,7 +170,6 @@ const Arrendamiento = () => {
     try {
       const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
-      // Removed unused variable 'pageHeight'
 
       for (let i = 0; i < refs.length; i++) {
         const element = refs[i].current!;
@@ -339,6 +353,11 @@ const Arrendamiento = () => {
             Exportar a PDF
           </button>
         </div>
+        {errorMessage && (
+          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 rounded">
+            {errorMessage}
+          </div>
+        )}
         <div className="space-y-6 text-justify text-[14px]">
           <div ref={section1Ref} className="pdf-section bg-white p-4">
             <h1 className="text-2xl font-bold text-center text-gray-800 dark:text-gray-200">
@@ -715,8 +734,8 @@ const Arrendamiento = () => {
                 órdenes u acciones, incluida la de negación de licencias de
                 gobiernos extranjeros a las partes, o de entidades que de
                 cualquier forma posean, dirijan o controlen al ARRENDATARIO, que
-                impidan o intenten impedir, total o parcialmen ```typescript te,
-                el oportuno y cabal cumplimiento de este contrato.
+                impidan o intenten impedir, total o parcialmente, el oportuno y
+                cabal cumplimiento de este contrato.
                 <br />
                 9.5 Cuando concurran circunstancias de EXIMENTES DE
                 RESPONSABILIDAD y después de realizar todas las gestiones para
