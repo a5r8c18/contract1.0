@@ -1,16 +1,22 @@
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker } from "react-day-picker"
+import { DayPicker, DayPickerContext, DayPickerProps, Mode, CustomComponents } from "react-day-picker"
 
-import { cn } from "@/lib/utils"
-import { buttonVariants } from "@/components/ui/button"
+import { cn } from "../../lib/utils"
+import { buttonVariants } from "../../components/ui/button"
+
 
 function Calendar({
   className,
   classNames,
   showOutsideDays = true,
   ...props
-}: React.ComponentProps<typeof DayPicker>) {
+}: DayPickerProps & {
+  components?: Partial<DayPickerContext<{ mode?: Mode; required?: boolean }>> & {
+    IconLeft?: React.ComponentType<{ className?: string }>;
+    IconRight?: React.ComponentType<{ className?: string }>;
+  };
+}) {
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -58,12 +64,9 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("size-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("size-4", className)} {...props} />
-        ),
+        ...(props.components || {} as CustomComponents),
+        PreviousMonthButton: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}><ChevronLeft className="size-4" /></button>,
+        NextMonthButton: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}><ChevronRight className="size-4" /></button>,
       }}
       {...props}
     />
