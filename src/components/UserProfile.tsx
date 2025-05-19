@@ -36,7 +36,7 @@ export default function UserProfile() {
       try {
         console.log("Solicitando perfil con token:", token);
         const response = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL}/auth/profile`,
+          `${import.meta.env.VITE_API_URL}/auth/profile`,
           {
             method: "GET",
             headers: {
