@@ -89,8 +89,13 @@ const Arrendamiento = () => {
   const [isEditing, setIsEditing] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Function to check if the form is complete
-  const isFormComplete = Object.values(formData).every((value) => {
+  // Function to check if the main form is complete (excluding anexo fields)
+  const isFormComplete = Object.entries(formData).every(([key, value]) => {
+    // Skip anexo fields from validation
+    if (key.startsWith('anexo') || key === 'anexoPersonasServicios' || key === 'anexoPersonasConciliaciones') {
+      return true;
+    }
+    
     if (Array.isArray(value)) {
       return value.every((item) =>
         Object.values(item).every((field) => field.trim() !== "")
@@ -146,7 +151,7 @@ const Arrendamiento = () => {
     }
 
     try {
-      await api.post('/arrendamiento', formData);
+      await api.post('/contrato', formData);
       setIsEditing(false);
       setErrorMessage(null);
       alert("Datos guardados correctamente en el servidor.");
