@@ -45,7 +45,10 @@ const SignUp = () => {
       valid = false;
     }
 
-    const minPasswordLength = parseInt(import.meta.env.VITE_MIN_PASSWORD_LENGTH || '6', 10);
+    const minPasswordLength = parseInt(
+      import.meta.env.VITE_MIN_PASSWORD_LENGTH || "6",
+      10
+    );
     if (password.length < minPasswordLength) {
       newErrors.password = `La contraseña debe tener al menos ${minPasswordLength} caracteres`;
       valid = false;
@@ -64,7 +67,7 @@ const SignUp = () => {
 
     try {
       setIsLoading(true);
-      const response = await api.post("/auth/register", {
+      const response = await api.post("/auth/signup", {
         name,
         email,
         password,
@@ -75,7 +78,10 @@ const SignUp = () => {
         navigate("/dashboard");
       }, 2000);
     } catch (error: any) {
-      setErrors({ ...errors, api: error.response?.data?.message || "An error occurred" });
+      setErrors({
+        ...errors,
+        api: error.response?.data?.message || "An error occurred",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +119,9 @@ const SignUp = () => {
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className={`pl-10 ${errors.name ? "border-red-500" : ""} w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
+                  className={`pl-10 ${
+                    errors.name ? "border-red-500" : ""
+                  } w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
                   placeholder="Tu nombre"
                   disabled={isLoading}
                 />
@@ -135,7 +143,9 @@ const SignUp = () => {
                   id="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={`pl-10 ${errors.email ? "border-red-500" : ""} w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
+                  className={`pl-10 ${
+                    errors.email ? "border-red-500" : ""
+                  } w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
                   placeholder="tu@correo.com"
                   disabled={isLoading}
                 />
@@ -157,7 +167,9 @@ const SignUp = () => {
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`pl-10 ${errors.password ? "border-red-500" : ""} w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
+                  className={`pl-10 ${
+                    errors.password ? "border-red-500" : ""
+                  } w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500`}
                   placeholder="********"
                   disabled={isLoading}
                 />
