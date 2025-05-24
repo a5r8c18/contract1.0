@@ -326,7 +326,14 @@ const Arrendamiento = () => {
             box-sizing: border-box;
             background-color: #ffffff;
             color: #000000;
+            margin: 0 auto;
           }
+
+          .pdf-section * {
+            margin-left: 0; /* Neutraliza márgenes izquierdos predeterminados */
+            margin-right: 0; /* Neutraliza márgenes derechos predeterminados */
+          }
+
           table {
             width: 100%;
             border-collapse: collapse;
@@ -340,10 +347,14 @@ const Arrendamiento = () => {
           th {
             background-color: #f0f0f0;
           }
+          p, h1, h2, h3 {
+            margin: 0; /* Elimina márgenes predeterminados */
+          }
           @media print {
             .pdf-section {
               break-inside: avoid;
               page-break-inside: avoid;
+              margin: 0 ;
             }
             .pdf-section section {
               break-inside: avoid;
