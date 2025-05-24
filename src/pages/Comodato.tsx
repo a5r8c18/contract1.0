@@ -1,16 +1,18 @@
-import { useRef, useState } from "react";
-import axios from "axios";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useRef, useState, useEffect } from "react";
+import api from "../lib/axios";
 
 const ContratoComodato = () => {
-  const section1Ref = useRef<HTMLDivElement>(null);
-  const section2Ref = useRef<HTMLDivElement>(null);
-  const section3Ref = useRef<HTMLDivElement>(null);
+  const section1Ref = useRef<HTMLDivElement>(null); // Cláusulas 1-2
+  const section2Ref = useRef<HTMLDivElement>(null); // Cláusulas 3-6
+  const section3Ref = useRef<HTMLDivElement>(null); // Cláusulas 7-8 & Anexo 1
   const [formData, setFormData] = useState({
     comodanteNombre: "",
     comodanteNacionalidad: "",
     comodanteDomicilio: "",
     comodanteMunicipio: "",
     comodanteIdentidad: "",
+    comodanteTelefono: "",
     comodatarioNombre: "",
     comodatarioConstitucion: "",
     comodatarioDomicilio: "",
@@ -28,8 +30,12 @@ const ContratoComodato = () => {
     comodatarioRepresentante: "",
     comodatarioCondicion: "",
     comodatarioDecision: "",
+    comodatarioDecisionNumero: "",
     comodatarioDecisionFecha: "",
     comodatarioEmitidaPor: "",
+    comodatarioNotarioProvincia: "",
+    comodatarioNotarioSede: "",
+    comodatarioNotarioProvinciaSede: "",
     bienDescripción: "",
     vigenciaAnios: "",
     avisoComodanteAtt: "",
@@ -49,6 +55,21 @@ const ContratoComodato = () => {
   });
 
   const [isEditing, setIsEditing] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  // Validate form completion (excluding optional anexo fields)
+  const isFormComplete = Object.entries(formData).every(([key, value]) => {
+    if (key === "anexoBienes") {
+      return true; // Optional field
+    }
+    if (Array.isArray(value)) {
+      return value.every((item) =>
+        Object.values(item).every((field) => field.trim() !== "")
+      );
+    }
+    return value.trim() !== "";
+  });
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -80,43 +101,39 @@ const ContratoComodato = () => {
     }
   };
 
-  const handleSave = () => {
-    setIsEditing(false);
-    alert("Datos guardados correctamente");
-  };
-
-  const handleEdit = () => {
-    setIsEditing(true);
-  };
-
-  const isFormComplete = () => {
-    return Object.entries(formData).every(([key, value]) => {
-      if (key === "anexoBienes") {
-        return formData.anexoBienes.every(
-          (bien) =>
-            bien.nombre.trim() !== "" &&
-            bien.caracteristicas.trim() !== "" &&
-            bien.marca.trim() !== "" &&
-            bien.modelo.trim() !== "" &&
-            bien.chapa.trim() !== ""
-        );
-      }
-      return typeof value === "string" ? value.trim() !== "" : true;
-    });
-  };
-
-  const exportToPDF = async () => {
-    if (!isFormComplete()) {
-      alert("Por favor, completa todos los campos requeridos.");
+  const handleSave = async () => {
+    if (!isFormComplete) {
+      setErrorMessage("Por favor, completa todos los campos del formulario.");
       return;
     }
 
     try {
-      const response = await axios.post(
-        'http://localhost:3000/pdf/generate-comodato',
-        { formData },
-        { responseType: 'blob' }
-      );
+      await api.post('/contrato-comodato', formData);
+      setIsEditing(false);
+      setErrorMessage(null);
+      alert("Datos guardados correctamente en el servidor.");
+    } catch (error: any) {
+      setErrorMessage(error.message || "Error al guardar los datos en el servidor.");
+    }
+  };
+
+  const handleEdit = () => {
+    setIsEditing(true);
+    setErrorMessage(null);
+  };
+
+  const exportToPDF = async () => {
+    if (!isFormComplete) {
+      setErrorMessage("Por favor, completa todos los campos del formulario.");
+      return;
+    }
+
+    setIsGeneratingPDF(true);
+
+    try {
+      const response = await api.post('/pdf/generate-comodato', { formData }, {
+        responseType: 'blob',
+      });
 
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
@@ -126,9 +143,13 @@ const ContratoComodato = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Error generando el PDF:", error);
-      alert("Error al generar el PDF. Revisa la consola para más detalles.");
+
+      setErrorMessage(null);
+    } catch (error: any) {
+      console.error('Error generating PDF:', error);
+      setErrorMessage('Error al generar el PDF. Por favor, intenta de nuevo.');
+    } finally {
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -137,12 +158,45 @@ const ContratoComodato = () => {
     placeholder: string,
     type: string = "text"
   ) => {
-    if (isEditing) {
+    if (isEditing && !isGeneratingPDF) {
+      if (type === "select") {
+        return (
+          <select
+            name={name}
+            value={typeof formData[name] === "string" ? formData[name] : ""}
+            onChange={handleChange}
+            className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded"
+          >
+            <option value="">{placeholder}</option>
+            {name === "comodatarioConstitucion" && (
+              <>
+                <option value="Escritura de Constitución">Escritura de Constitución</option>
+                <option value="Resolución">Resolución</option>
+                <option value="Acuerdo">Acuerdo</option>
+              </>
+            )}
+            {name === "comodatarioDecision" && (
+              <>
+                <option value="Decisión">Decisión</option>
+                <option value="Acuerdo">Acuerdo</option>
+                <option value="Resolución">Resolución</option>
+              </>
+            )}
+            {name === "vigenciaAnios" && (
+              <>
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+              </>
+            )}
+          </select>
+        );
+      }
       return (
         <input
           type={type}
           name={name}
-          value={formData[name] as string}
+          value={typeof formData[name] === "string" ? formData[name] : ""}
           onChange={handleChange}
           placeholder={placeholder}
           className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded"
@@ -151,21 +205,85 @@ const ContratoComodato = () => {
     }
     return (
       <span className="font-medium text-gray-900 dark:text-gray-200">
-        {(formData[name] as string) || placeholder}
+        {Array.isArray(formData[name])
+          ? JSON.stringify(formData[name])
+          : formData[name] || placeholder}
       </span>
     );
   };
 
+  // Effect to clear error message after 5 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-8 transition-colors duration-300">
+      <style>
+        {`
+          .pdf-section {
+            width: 190mm;
+            padding: 10mm;
+            box-sizing: border-box;
+            background-color: #ffffff;
+            color: #000000;
+            margin: 0 auto;
+          }
+
+          .pdf-section * {
+            margin-left: 0; /* Neutraliza márgenes izquierdos predeterminados */
+            margin-right: 0; /* Neutraliza márgenes derechos predeterminados */
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+          }
+          th, td {
+            border: 1px solid #000;
+            padding: 4px;
+            text-align: left;
+          }
+          th {
+            background-color: #f0f0f0;
+          }
+          p, h1, h2, h3 {
+            margin: 0; /* Elimina márgenes predeterminados */
+          }
+          @media print {
+            .pdf-section {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              margin: 0;
+            }
+            .pdf-section section {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              margin-bottom: 10mm;
+            }
+            .pdf-section h2, .pdf-section h3 {
+              break-after: avoid;
+              page-break-after: avoid;
+            }
+            .pdf-section p, .pdf-section table, .pdf-section ol {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+        `}
+      </style>
       <div className="max-w-4xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-lg shadow-lg text-gray-900 dark:text-gray-200">
         <div className="flex justify-between mb-6">
           {isEditing ? (
             <button
               onClick={handleSave}
-              disabled={!isFormComplete()}
+              disabled={!isFormComplete || isGeneratingPDF}
               className={`px-4 py-2 rounded-md text-white ${
-                isFormComplete()
+                isFormComplete && !isGeneratingPDF
                   ? "bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
                   : "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
               }`}
@@ -175,16 +293,21 @@ const ContratoComodato = () => {
           ) : (
             <button
               onClick={handleEdit}
-              className="px-4 py-2 rounded-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+              disabled={isGeneratingPDF}
+              className={`px-4 py-2 rounded-md text-white ${
+                isGeneratingPDF
+                  ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
+                  : "bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+              }`}
             >
               Editar
             </button>
           )}
           <button
             onClick={exportToPDF}
-            disabled={isEditing || !isFormComplete()}
+            disabled={isEditing || !isFormComplete || isGeneratingPDF}
             className={`px-4 py-2 rounded-md text-white ${
-              isEditing || !isFormComplete()
+              isEditing || !isFormComplete || isGeneratingPDF
                 ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
                 : "bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600"
             }`}
@@ -192,6 +315,11 @@ const ContratoComodato = () => {
             Exportar a PDF
           </button>
         </div>
+        {errorMessage && (
+          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 rounded">
+            {errorMessage}
+          </div>
+        )}
         <div className="space-y-6 text-justify text-[14px]">
           <div ref={section1Ref} className="pdf-section bg-white p-4">
             <h1 className="text-2xl font-bold text-center text-gray-800 dark:text-gray-200">
@@ -204,14 +332,13 @@ const ContratoComodato = () => {
               </h2>
               <p className="mt-2">
                 {renderField("comodanteNombre", "Nombre del comodante")}, de
-                nacionalidad{" "}
-                {renderField("comodanteNacionalidad", "Nacionalidad")}, con
-                domicilio social en{" "}
-                {renderField("comodanteDomicilio", "Domicilio")}, municipio{" "}
-                {renderField("comodanteMunicipio", "Municipio")}, provincia La
-                Habana, con carnet de identidad permanente{" "}
-                {renderField("comodanteIdentidad", "Identidad")}, que en lo
-                sucesivo y a los efectos del presente Contrato se denominará{" "}
+                nacionalidad {renderField("comodanteNacionalidad", "Nacionalidad")},
+                con domicilio social en {renderField("comodanteDomicilio", "Domicilio")},
+                municipio {renderField("comodanteMunicipio", "Municipio")},
+                provincia La Habana, con carnet de identidad permanente{" "}
+                {renderField("comodanteIdentidad", "Identidad")},
+                teléfono {renderField("comodanteTelefono", "Teléfono")},
+                que en lo sucesivo y a los efectos del presente Contrato se denominará{" "}
                 <strong>EL COMODANTE</strong>.
               </p>
             </section>
@@ -223,14 +350,14 @@ const ContratoComodato = () => {
               <p className="mt-2">
                 {renderField("comodatarioNombre", "Nombre del comodatario")},
                 constituida mediante{" "}
-                {renderField("comodatarioConstitucion", "Constitución")}, con
-                domicilio legal en{" "}
-                {renderField("comodatarioDomicilio", "Domicilio")}, municipio{" "}
-                {renderField("comodatarioMunicipio", "Municipio")}, provincia{" "}
-                {renderField("comodatarioProvincia", "Provincia")}, de
-                nacionalidad{" "}
-                {renderField("comodatarioNacionalidad", "Nacionalidad")}, código
-                REEUP y NIT: {renderField("comodatarioREEUPNIT", "REEUP y NIT")},
+                {renderField("comodatarioConstitucion", "Seleccione", "select")} No.{" "}
+                {renderField("comodatarioDecisionNumero", "Número")} de fecha{" "}
+                {renderField("comodatarioDecisionFecha", "", "date")},
+                con domicilio legal en {renderField("comodatarioDomicilio", "Domicilio")},
+                municipio {renderField("comodatarioMunicipio", "Municipio")},
+                provincia {renderField("comodatarioProvincia", "Provincia")},
+                de nacionalidad {renderField("comodatarioNacionalidad", "Nacionalidad")},
+                código REEUP y NIT: {renderField("comodatarioREEUPNIT", "REEUP y NIT")},
                 Inscripción Registro Mercantil Libro{" "}
                 {renderField("comodatarioLibro", "Libro")}, Tomo{" "}
                 {renderField("comodatarioTomo", "Tomo")}, Folio{" "}
@@ -238,16 +365,20 @@ const ContratoComodato = () => {
                 {renderField("comodatarioHoja", "Hoja")}, Cuenta bancaria No.{" "}
                 {renderField("comodatarioCuentaBancaria", "Cuenta bancaria")},
                 teléfonos {renderField("comodatarioTelefonos", "Teléfonos")},
-                dirección electrónica:{" "}
-                {renderField("comodatarioEmail", "Email", "email")},
+                dirección electrónica: {renderField("comodatarioEmail", "Email", "email")},
                 representada en este acto por{" "}
                 {renderField("comodatarioRepresentante", "Representante")} en su
                 condición de {renderField("comodatarioCondicion", "Condición")},
                 lo que acredita mediante{" "}
-                {renderField("comodatarioDecision", "Decisión")} de fecha{" "}
-                {renderField("comodatarioDecisionFecha", "", "date")}, emitida
-                por {renderField("comodatarioEmitidaPor", "Emitida por")}, que
-                en lo sucesivo y a los efectos de este contrato se denominará{" "}
+                {renderField("comodatarioDecision", "Seleccione", "select")} No.{" "}
+                {renderField("comodatarioDecisionNumero", "Número")} de fecha{" "}
+                {renderField("comodatarioDecisionFecha", "", "date")},
+                emitida por {renderField("comodatarioEmitidaPor", "Notario")},
+                notario con competencia provincial en{" "}
+                {renderField("comodatarioNotarioProvincia", "Provincia")} y
+                sede en la {renderField("comodatarioNotarioSede", "Sede")},
+                provincia {renderField("comodatarioNotarioProvinciaSede", "Provincia")},
+                que en lo sucesivo y a los efectos de este contrato se denominará{" "}
                 <strong>EL COMODATARIO</strong>.
               </p>
             </section>
@@ -343,7 +474,7 @@ const ContratoComodato = () => {
               </h2>
               <p className="mt-2">
                 4.1 La duración del presente Contrato será de{" "}
-                {renderField("vigenciaAnios", "Años")} años.
+                {renderField("vigenciaAnios", "Seleccione", "select")} años.
                 <br />
                 4.1.1 <strong>LAS PARTES</strong> durante el cumplimiento del
                 presente Contrato pueden acordar modificaciones a las
@@ -566,10 +697,10 @@ const ContratoComodato = () => {
                 <thead>
                   <tr className="bg-gray-200 dark:bg-gray-700">
                     <th className="border border-gray-300 dark:border-gray-700 p-2">
-                      Nombres y Apellidos
+                      Nombre del Bien
                     </th>
                     <th className="border border-gray-300 dark:border-gray-700 p-2">
-                      Características (No. de circulación y otros)
+                      Características
                     </th>
                     <th className="border border-gray-300 dark:border-gray-700 p-2">
                       Marca
@@ -591,22 +722,22 @@ const ContratoComodato = () => {
                   {formData.anexoBienes.map((bien, index) => (
                     <tr key={index}>
                       <td className="border border-gray-300 dark:border-gray-700 p-2">
-                        {isEditing ? (
+                        {isEditing && !isGeneratingPDF ? (
                           <input
                             type="text"
                             value={bien.nombre}
                             onChange={(e) =>
                               handleAnexoChange(index, "nombre", e.target.value)
                             }
-                            placeholder="Nombres y Apellidos"
+                            placeholder="Nombre del Bien"
                             className="w-full p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded"
                           />
                         ) : (
-                          bien.nombre || "Nombres y Apellidos"
+                          bien.nombre || "Nombre del Bien"
                         )}
                       </td>
                       <td className="border border-gray-300 dark:border-gray-700 p-2">
-                        {isEditing ? (
+                        {isEditing && !isGeneratingPDF ? (
                           <input
                             type="text"
                             value={bien.caracteristicas}
@@ -625,7 +756,7 @@ const ContratoComodato = () => {
                         )}
                       </td>
                       <td className="border border-gray-300 dark:border-gray-700 p-2">
-                        {isEditing ? (
+                        {isEditing && !isGeneratingPDF ? (
                           <input
                             type="text"
                             value={bien.marca}
@@ -640,7 +771,7 @@ const ContratoComodato = () => {
                         )}
                       </td>
                       <td className="border border-gray-300 dark:border-gray-700 p-2">
-                        {isEditing ? (
+                        {isEditing && !isGeneratingPDF ? (
                           <input
                             type="text"
                             value={bien.modelo}
@@ -655,7 +786,7 @@ const ContratoComodato = () => {
                         )}
                       </td>
                       <td className="border border-gray-300 dark:border-gray-700 p-2">
-                        {isEditing ? (
+                        {isEditing && !isGeneratingPDF ? (
                           <input
                             type="text"
                             value={bien.chapa}
@@ -674,11 +805,7 @@ const ContratoComodato = () => {
                           <button
                             onClick={() => removeAnexoRow(index)}
                             disabled={formData.anexoBienes.length <= 1}
-                            className={`px-2 py-1 rounded-md text-white ${
-                              formData.anexoBienes.length <= 1
-                                ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
-                                : "bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600"
-                            }`}
+                            className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
                           >
                             Eliminar
                           </button>
@@ -692,7 +819,7 @@ const ContratoComodato = () => {
                 <div className="mt-4">
                   <button
                     onClick={addAnexoRow}
-                    className="px-4 py-2 rounded-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
                     Agregar Fila
                   </button>
