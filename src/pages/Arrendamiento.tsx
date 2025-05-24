@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas-pro";
-import api from "../lib/axios"; // Importa la instancia de Axios
+import api from "../lib/axios";
 
 const Arrendamiento = () => {
   const section1Ref = useRef<HTMLDivElement>(null); // Cláusulas I-V
@@ -61,7 +61,6 @@ const Arrendamiento = () => {
     firmaDia: "",
     firmaMes: "",
     firmaAnio: "2024",
-    // ANEXO II Fields
     anexoEntidadNombre: "",
     anexoEntidadDireccion: "",
     anexoEntidadTelefono: "",
@@ -88,14 +87,13 @@ const Arrendamiento = () => {
 
   const [isEditing, setIsEditing] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-  // Function to check if the main form is complete (excluding anexo fields)
+  // Función para validar si el formulario está completo (excluyendo anexo opcional)
   const isFormComplete = Object.entries(formData).every(([key, value]) => {
-    // Skip anexo fields from validation
     if (key.startsWith('anexo') || key === 'anexoPersonasServicios' || key === 'anexoPersonasConciliaciones') {
       return true;
     }
-    
     if (Array.isArray(value)) {
       return value.every((item) =>
         Object.values(item).every((field) => field.trim() !== "")
@@ -165,33 +163,39 @@ const Arrendamiento = () => {
     setErrorMessage(null);
   };
 
+  // Función optimizada para generar el PDF
   const exportToPDF = async () => {
     const refs = [section1Ref, section2Ref, section3Ref];
     if (refs.some((ref) => !ref.current)) {
-      alert("Error: No se encontraron todas las secciones del contrato.");
+      setErrorMessage("Error: No se encontraron todas las secciones del contrato.");
       return;
     }
+
+    setIsGeneratingPDF(true);
+    const originalEditingState = isEditing;
+    setIsEditing(false); // Desactivar modo edición para renderizado limpio
 
     try {
       const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
       const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
-      const marginTop = 15; // 15mm top margin
-      const marginBottom = 15; // 15mm bottom margin
-      const usableHeight = pageHeight - marginTop - marginBottom; // Usable height per page
+      const marginTop = 15;
+      const marginBottom = 15;
+      const usableHeight = pageHeight - marginTop - marginBottom;
       let currentY = marginTop;
+
+      // Esperar a que el DOM se actualice
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       for (let i = 0; i < refs.length; i++) {
         const element = refs[i].current!;
-        // Temporarily apply print-specific styles
-        element.style.width = `${pageWidth}mm`;
-        element.style.padding = "10mm";
-        element.style.boxSizing = "border-box";
+        // Aplicar clase CSS para estilos de PDF
+        element.classList.add("pdf-rendering");
 
         const canvas = await html2canvas(element, {
-          scale: 4, // Increase scale for better quality
+          scale: 2, // Reducir escala para mejor rendimiento
           useCORS: true,
-          logging: true,
+          logging: false,
           backgroundColor: "#ffffff",
           width: element.scrollWidth,
           height: element.scrollHeight,
@@ -202,16 +206,14 @@ const Arrendamiento = () => {
         const imageData = canvas.toDataURL("image/png");
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
-        const ratio = (pageWidth - 20) / imgWidth; // Account for 10mm side margins
+        const ratio = (pageWidth - 20) / imgWidth; // Márgenes laterales de 10mm
         const scaledWidth = imgWidth * ratio;
         const scaledHeight = imgHeight * ratio;
 
-        // Calculate how many pages are needed for this section
         let remainingHeight = scaledHeight;
 
         while (remainingHeight > 0) {
           if (currentY + remainingHeight > usableHeight) {
-            // Add new page if remaining height exceeds usable height
             if (currentY !== marginTop) {
               pdf.addPage();
               currentY = marginTop;
@@ -224,7 +226,7 @@ const Arrendamiento = () => {
           pdf.addImage(
             imageData,
             "PNG",
-            10, // 10mm left margin
+            10,
             currentY,
             scaledWidth,
             clipHeight,
@@ -242,16 +244,17 @@ const Arrendamiento = () => {
           }
         }
 
-        // Reset styles after capturing
-        element.style.width = "";
-        element.style.padding = "";
-        element.style.boxSizing = "";
+        // Remover clase CSS
+        element.classList.remove("pdf-rendering");
       }
 
       pdf.save("contrato_arrendamiento.pdf");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generando el PDF:", error);
-      alert("Error al generar el PDF. Revisa la consola para más detalles.");
+      setErrorMessage(`Error al generar el PDF: ${error.message || "Desconocido"}. Revisa la consola para más detalles.`);
+    } finally {
+      setIsEditing(originalEditingState); // Restaurar estado de edición
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -260,7 +263,7 @@ const Arrendamiento = () => {
     placeholder: string,
     type: string = "text"
   ) => {
-    if (isEditing) {
+    if (isEditing && !isGeneratingPDF) {
       if (type === "select") {
         return (
           <select
@@ -355,7 +358,7 @@ const Arrendamiento = () => {
       );
     }
     return (
-      <span className="font-medium text-gray-900 dark:text-gray-200">
+      <span className="font-medium text-gray-900">
         {Array.isArray(formData[name])
           ? JSON.stringify(formData[name])
           : formData[name] || placeholder}
@@ -363,10 +366,33 @@ const Arrendamiento = () => {
     );
   };
 
+  // Efecto para limpiar el mensaje de error después de 5 segundos
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-8 transition-colors duration-300">
       <style>
         {`
+          .pdf-rendering {
+            width: 190mm !important;
+            padding: 10mm !important;
+            box-sizing: border-box !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+          }
+          .pdf-rendering input, .pdf-rendering select {
+            border: none !important;
+            background: transparent !important;
+            color: #000000 !important;
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+          }
           @media print {
             .pdf-section {
               break-inside: avoid;
@@ -393,9 +419,9 @@ const Arrendamiento = () => {
           {isEditing ? (
             <button
               onClick={handleSave}
-              disabled={!isFormComplete}
+              disabled={!isFormComplete || isGeneratingPDF}
               className={`px-4 py-2 rounded-md text-white ${
-                isFormComplete
+                isFormComplete && !isGeneratingPDF
                   ? "bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
                   : "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
               }`}
@@ -405,19 +431,24 @@ const Arrendamiento = () => {
           ) : (
             <button
               onClick={handleEdit}
-              className="px-4 py-2 rounded-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+              disabled={isGeneratingPDF}
+              className={`px-4 py-2 rounded-md text-white ${
+                isGeneratingPDF
+                  ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
+                  : "bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+              }`}
             >
               Editar
             </button>
           )}
           <button
             onClick={exportToPDF}
-            disabled={isEditing || !isFormComplete}
+            disabled={isEditing || !isFormComplete || isGeneratingPDF}
             className={`px-4 py-2 rounded-md text-white ${
-              isEditing || !isFormComplete
+              isEditing || !isFormComplete || isGeneratingPDF
                 ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
                 : "bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600"
-            }`}
+              }`}
           >
             Exportar a PDF
           </button>
@@ -503,8 +534,8 @@ const Arrendamiento = () => {
                   "select"
                 )}{" "}
                 No. {renderField("arrendatarioAcreditacionNumero", "Número")} de
-                fecha {renderField("arrendatarioAcreditacionFecha", "", "date")}
-                , emitida por {renderField("arrendatarioNotario", "Notario")},
+                fecha {renderField("arrendatarioAcreditacionFecha", "", "date")},
+                emitida por {renderField("arrendatarioNotario", "Notario")},
                 notario con competencia provincial en{" "}
                 {renderField("arrendatarioNotarioProvincia", "Provincia")} y
                 sede en la {renderField("arrendatarioNotarioSede", "Sede")},
@@ -990,7 +1021,7 @@ const Arrendamiento = () => {
                         <th className="border border-gray-300 dark:border-gray-700 p-2">
                           No. C. Identidad
                         </th>
-                        {isEditing && (
+                        {isEditing && !isGeneratingPDF && (
                           <th className="border border-gray-300 dark:border-gray-700 p-2">
                             Acciones
                           </th>
@@ -1001,7 +1032,7 @@ const Arrendamiento = () => {
                       {formData.anexoPersonasServicios.map((persona, index) => (
                         <tr key={index}>
                           <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing ? (
+                            {isEditing && !isGeneratingPDF ? (
                               <input
                                 type="text"
                                 value={persona.nombre}
@@ -1021,7 +1052,7 @@ const Arrendamiento = () => {
                             )}
                           </td>
                           <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing ? (
+                            {isEditing && !isGeneratingPDF ? (
                               <input
                                 type="text"
                                 value={persona.cargo}
@@ -1041,7 +1072,7 @@ const Arrendamiento = () => {
                             )}
                           </td>
                           <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing ? (
+                            {isEditing && !isGeneratingPDF ? (
                               <input
                                 type="text"
                                 value={persona.firma}
@@ -1061,7 +1092,7 @@ const Arrendamiento = () => {
                             )}
                           </td>
                           <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing ? (
+                            {isEditing && !isGeneratingPDF ? (
                               <input
                                 type="text"
                                 value={persona.identidad}
@@ -1080,7 +1111,7 @@ const Arrendamiento = () => {
                               persona.identidad || "No. C. Identidad"
                             )}
                           </td>
-                          {isEditing && (
+                          {isEditing && !isGeneratingPDF && (
                             <td className="border border-gray-300 dark:border-gray-700 p-2">
                               <button
                                 onClick={() =>
@@ -1096,7 +1127,7 @@ const Arrendamiento = () => {
                       ))}
                     </tbody>
                   </table>
-                  {isEditing && (
+                  {isEditing && !isGeneratingPDF && (
                     <button
                       onClick={() => addPerson("anexoPersonasServicios")}
                       className="mt-2 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600"
@@ -1125,7 +1156,7 @@ const Arrendamiento = () => {
                         <th className="border border-gray-300 dark:border-gray-700 p-2">
                           No. C. Identidad
                         </th>
-                        {isEditing && (
+                        {isEditing && !isGeneratingPDF && (
                           <th className="border border-gray-300 dark:border-gray-700 p-2">
                             Acciones
                           </th>
@@ -1137,7 +1168,7 @@ const Arrendamiento = () => {
                         (persona, index) => (
                           <tr key={index}>
                             <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing ? (
+                              {isEditing && !isGeneratingPDF ? (
                                 <input
                                   type="text"
                                   value={persona.nombre}
@@ -1157,7 +1188,7 @@ const Arrendamiento = () => {
                               )}
                             </td>
                             <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing ? (
+                              {isEditing && !isGeneratingPDF ? (
                                 <input
                                   type="text"
                                   value={persona.cargo}
@@ -1177,7 +1208,7 @@ const Arrendamiento = () => {
                               )}
                             </td>
                             <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing ? (
+                              {isEditing && !isGeneratingPDF ? (
                                 <input
                                   type="text"
                                   value={persona.firma}
@@ -1197,7 +1228,7 @@ const Arrendamiento = () => {
                               )}
                             </td>
                             <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing ? (
+                              {isEditing && !isGeneratingPDF ? (
                                 <input
                                   type="text"
                                   value={persona.identidad}
@@ -1216,7 +1247,7 @@ const Arrendamiento = () => {
                                 persona.identidad || "No. C. Identidad"
                               )}
                             </td>
-                            {isEditing && (
+                            {isEditing && !isGeneratingPDF && (
                               <td className="border border-gray-300 dark:border-gray-700 p-2">
                                 <button
                                   onClick={() =>
@@ -1236,7 +1267,7 @@ const Arrendamiento = () => {
                       )}
                     </tbody>
                   </table>
-                  {isEditing && (
+                  {isEditing && !isGeneratingPDF && (
                     <button
                       onClick={() => addPerson("anexoPersonasConciliaciones")}
                       className="mt-2 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600"
