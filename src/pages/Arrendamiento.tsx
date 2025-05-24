@@ -175,9 +175,19 @@ const Arrendamiento = () => {
     try {
       const pdf = new jsPDF("p", "mm", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+      const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+      const marginTop = 15; // 15mm top margin
+      const marginBottom = 15; // 15mm bottom margin
+      const usableHeight = pageHeight - marginTop - marginBottom; // Usable height per page
+      let currentY = marginTop;
 
       for (let i = 0; i < refs.length; i++) {
         const element = refs[i].current!;
+        // Temporarily apply print-specific styles
+        element.style.width = `${pageWidth}mm`;
+        element.style.padding = "10mm";
+        element.style.boxSizing = "border-box";
+
         const canvas = await html2canvas(element, {
           scale: 2,
           useCORS: true,
@@ -190,17 +200,39 @@ const Arrendamiento = () => {
         const imageData = canvas.toDataURL("image/png");
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
-        const ratio = pageWidth / imgWidth;
+        const ratio = (pageWidth - 20) / imgWidth; // Account for 10mm side margins
         const scaledWidth = imgWidth * ratio;
         const scaledHeight = imgHeight * ratio;
 
-        if (i > 0) {
-          pdf.addPage();
+        // Calculate how many pages are needed for this section
+        const pagesNeeded = Math.ceil(scaledHeight / usableHeight);
+        for (let page = 0; page < pagesNeeded; page++) {
+          if (i > 0 || page > 0) {
+            pdf.addPage();
+            currentY = marginTop;
+          }
+
+          const clipHeight = Math.min(scaledHeight - page * usableHeight, usableHeight);
+          if (clipHeight <= 0) continue;
+
+          pdf.addImage(
+            imageData,
+            "PNG",
+            10, // 10mm left margin
+            currentY,
+            scaledWidth,
+            clipHeight,
+            undefined,
+            "FAST"
+          );
+          // Adjust the Y position for the next page
+          currentY += clipHeight;
         }
 
-        pdf.setFont("helvetica");
-        pdf.setFontSize(14);
-        pdf.addImage(imageData, "PNG", 0, 0, scaledWidth, scaledHeight);
+        // Reset styles after capturing
+        element.style.width = "";
+        element.style.padding = "";
+        element.style.boxSizing = "";
       }
 
       pdf.save("contrato_arrendamiento.pdf");
@@ -227,9 +259,7 @@ const Arrendamiento = () => {
             <option value="">{placeholder}</option>
             {name === "arrendatarioConstitucion" && (
               <>
-                <option value="Escritura de Constitución">
-                  Escritura de Constitución
-                </option>
+                <option value="Escritura de Constitución">Escritura de Constitución</option>
                 <option value="Resolución">Resolución</option>
                 <option value="Acuerdo">Acuerdo</option>
               </>
@@ -267,9 +297,7 @@ const Arrendamiento = () => {
             )}
             {name === "pagoInstrumento" && (
               <>
-                <option value="Transferencia bancaria">
-                  Transferencia bancaria
-                </option>
+                <option value="Transferencia bancaria">Transferencia bancaria</option>
                 <option value="Cheque">Cheque</option>
                 <option value="Efectivo">Efectivo</option>
                 <option value="Otro">Otro</option>
@@ -324,6 +352,29 @@ const Arrendamiento = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-8 transition-colors duration-300">
+      <style>
+        {`
+          @media print {
+            .pdf-section {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+            .pdf-section section {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              margin-bottom: 10mm;
+            }
+            .pdf-section h2 {
+              break-after: avoid;
+              page-break-after: avoid;
+            }
+            .pdf-section p, .pdf-section table {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+        `}
+      </style>
       <div className="max-w-4xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-lg shadow-lg text-gray-900 dark:text-gray-200">
         <div className="flex justify-between mb-6">
           {isEditing ? (
@@ -389,8 +440,8 @@ const Arrendamiento = () => {
                 {renderField(
                   "arrendadorAgenciaDireccion",
                   "Dirección de la agencia"
-                )}
-                , con No. De licencia comercial{" "}
+                )},
+                con No. De licencia comercial{" "}
                 {renderField("arrendadorLicencia", "Licencia comercial")},
                 Teléfono {renderField("arrendadorTelefono", "Teléfono")} y a los
                 efectos de este contrato se denominará{" "}
@@ -411,7 +462,7 @@ const Arrendamiento = () => {
                   "select"
                 )}{" "}
                 No. {renderField("arrendatarioNumero", "Número")} de fecha{" "}
-                {renderField("arrendatarioFecha", "", "date")}, con domicilio
+                {renderField("arrendatarioFecha", "", "date")} con domicilio
                 legal en{" "}
                 {renderField("arrendatarioDireccion", "Dirección legal")},
                 municipio {renderField("arrendatarioMunicipio", "Municipio")},
@@ -801,7 +852,7 @@ const Arrendamiento = () => {
                 310/12, De los Tipos de Contratos y en lo dispuesto en el
                 Decreto Ley 88/24 Sobre las micro, pequeñas y medianas empresas,
                 Decreto Ley 90/24 Sobre el Ejercicio del Trabajo por cuenta
-                propia, Decreto Ley 91/4 De las contravenciones en el Ejercicio
+                propia, Decreto Ley 91/24 De las contravenciones en el Ejercicio
                 del Trabajo Por Cuenta Propia, las Micro, Pequeñas y Medianas
                 empresas privadas y los Titulares de los Proyectos de Desarrollo
                 Local y demás que sean de adecuación emitidos por los organismos
