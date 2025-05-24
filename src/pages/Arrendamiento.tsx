@@ -89,7 +89,6 @@ const Arrendamiento = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-  // Función para validar si el formulario está completo (excluyendo anexo opcional)
   const isFormComplete = Object.entries(formData).every(([key, value]) => {
     if (key.startsWith('anexo') || key === 'anexoPersonasServicios' || key === 'anexoPersonasConciliaciones') {
       return true;
@@ -181,19 +180,22 @@ const Arrendamiento = () => {
       const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
       const marginTop = 15;
       const marginBottom = 15;
+      const marginSide = 10;
       const usableHeight = pageHeight - marginTop - marginBottom;
       let currentY = marginTop;
 
-      // Esperar a que el DOM se actualice
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Esperar a que el DOM se renderice completamente
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => setTimeout(resolve, 200));
+      });
 
       for (let i = 0; i < refs.length; i++) {
         const element = refs[i].current!;
-        // Aplicar clase CSS para estilos de PDF
         element.classList.add("pdf-rendering");
 
+        // Capturar el canvas con alta calidad
         const canvas = await html2canvas(element, {
-          scale: 2, // Reducir escala para mejor rendimiento
+          scale: 3, // Aumentar escala para mejor calidad
           useCORS: true,
           logging: false,
           backgroundColor: "#ffffff",
@@ -203,40 +205,58 @@ const Arrendamiento = () => {
           windowHeight: 1080,
         });
 
-        const imageData = canvas.toDataURL("image/png");
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
-        const ratio = (pageWidth - 20) / imgWidth; // Márgenes laterales de 10mm
+        const ratio = (pageWidth - 2 * marginSide) / imgWidth;
         const scaledWidth = imgWidth * ratio;
         const scaledHeight = imgHeight * ratio;
 
+        // Calcular cuántas páginas necesita esta sección
+        let yOffset = 0;
         let remainingHeight = scaledHeight;
 
         while (remainingHeight > 0) {
-          if (currentY + remainingHeight > usableHeight) {
-            if (currentY !== marginTop) {
-              pdf.addPage();
-              currentY = marginTop;
-            }
+          if (currentY >= usableHeight) {
+            pdf.addPage();
+            currentY = marginTop;
           }
 
           const clipHeight = Math.min(remainingHeight, usableHeight - currentY);
           if (clipHeight <= 0) break;
 
+          // Crear un canvas temporal para recortar la imagen
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = canvas.width;
+          tempCanvas.height = (clipHeight / ratio); // Altura en píxeles originales
+          const tempCtx = tempCanvas.getContext("2d")!;
+          tempCtx.drawImage(
+            canvas,
+            0,
+            yOffset / ratio, // Recortar desde el offset
+            canvas.width,
+            clipHeight / ratio,
+            0,
+            0,
+            canvas.width,
+            clipHeight / ratio
+          );
+
+          const imageData = tempCanvas.toDataURL("image/jpeg", 0.95); // Usar JPEG con alta calidad
           pdf.addImage(
             imageData,
-            "PNG",
-            10,
+            "JPEG",
+            marginSide,
             currentY,
             scaledWidth,
             clipHeight,
             undefined,
-            "SLOW",
+            "FAST", // Cambiar a FAST para mejor rendimiento
             0
           );
 
           currentY += clipHeight;
           remainingHeight -= clipHeight;
+          yOffset += clipHeight;
 
           if (remainingHeight > 0 && currentY >= usableHeight) {
             pdf.addPage();
@@ -244,8 +264,14 @@ const Arrendamiento = () => {
           }
         }
 
-        // Remover clase CSS
         element.classList.remove("pdf-rendering");
+
+        // Añadir un pequeño espacio entre secciones
+        currentY += 5;
+        if (currentY >= usableHeight) {
+          pdf.addPage();
+          currentY = marginTop;
+        }
       }
 
       pdf.save("contrato_arrendamiento.pdf");
@@ -253,7 +279,7 @@ const Arrendamiento = () => {
       console.error("Error generando el PDF:", error);
       setErrorMessage(`Error al generar el PDF: ${error.message || "Desconocido"}. Revisa la consola para más detalles.`);
     } finally {
-      setIsEditing(originalEditingState); // Restaurar estado de edición
+      setIsEditing(originalEditingState);
       setIsGeneratingPDF(false);
     }
   };
@@ -366,7 +392,6 @@ const Arrendamiento = () => {
     );
   };
 
-  // Efecto para limpiar el mensaje de error después de 5 segundos
   useEffect(() => {
     if (errorMessage) {
       const timer = setTimeout(() => setErrorMessage(null), 5000);
@@ -384,6 +409,8 @@ const Arrendamiento = () => {
             box-sizing: border-box !important;
             background-color: #ffffff !important;
             color: #000000 !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
           }
           .pdf-rendering input, .pdf-rendering select {
             border: none !important;
@@ -392,6 +419,18 @@ const Arrendamiento = () => {
             appearance: none !important;
             -webkit-appearance: none !important;
             -moz-appearance: none !important;
+            font-size: 14px !important;
+          }
+          .pdf-rendering table {
+            border-collapse: collapse !important;
+            font-size: 14px !important;
+          }
+          .pdf-rendering th, .pdf-rendering td {
+            border: 1px solid #000000 !important;
+            padding: 4px !important;
+          }
+          .pdf-rendering * {
+            transition: none !important;
           }
           @media print {
             .pdf-section {
@@ -779,7 +818,7 @@ const Arrendamiento = () => {
                 mediante Suplemento fechado y firmado por ambas partes, debiendo
                 la otra parte dar respuesta en un término de quince (15) días.
                 En caso de no dar respuesta se entenderá como aceptado, toda
-                modificación se realizará suscribiéndose el correspondiente
+                modificación se realizará suscribiendo el correspondiente
                 suplemento.
                 <br />
                 8.2 La modificación o rescisión del Contrato no exime a las
