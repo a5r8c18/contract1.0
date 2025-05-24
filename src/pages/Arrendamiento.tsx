@@ -189,12 +189,14 @@ const Arrendamiento = () => {
         element.style.boxSizing = "border-box";
 
         const canvas = await html2canvas(element, {
-          scale: 2,
+          scale: 4, // Increase scale for better quality
           useCORS: true,
           logging: true,
           backgroundColor: "#ffffff",
           width: element.scrollWidth,
           height: element.scrollHeight,
+          windowWidth: 1920,
+          windowHeight: 1080,
         });
 
         const imageData = canvas.toDataURL("image/png");
@@ -205,15 +207,19 @@ const Arrendamiento = () => {
         const scaledHeight = imgHeight * ratio;
 
         // Calculate how many pages are needed for this section
-        const pagesNeeded = Math.ceil(scaledHeight / usableHeight);
-        for (let page = 0; page < pagesNeeded; page++) {
-          if (i > 0 || page > 0) {
-            pdf.addPage();
-            currentY = marginTop;
+        let remainingHeight = scaledHeight;
+
+        while (remainingHeight > 0) {
+          if (currentY + remainingHeight > usableHeight) {
+            // Add new page if remaining height exceeds usable height
+            if (currentY !== marginTop) {
+              pdf.addPage();
+              currentY = marginTop;
+            }
           }
 
-          const clipHeight = Math.min(scaledHeight - page * usableHeight, usableHeight);
-          if (clipHeight <= 0) continue;
+          const clipHeight = Math.min(remainingHeight, usableHeight - currentY);
+          if (clipHeight <= 0) break;
 
           pdf.addImage(
             imageData,
@@ -223,10 +229,17 @@ const Arrendamiento = () => {
             scaledWidth,
             clipHeight,
             undefined,
-            "FAST"
+            "SLOW",
+            0
           );
-          // Adjust the Y position for the next page
+
           currentY += clipHeight;
+          remainingHeight -= clipHeight;
+
+          if (remainingHeight > 0 && currentY >= usableHeight) {
+            pdf.addPage();
+            currentY = marginTop;
+          }
         }
 
         // Reset styles after capturing
