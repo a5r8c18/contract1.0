@@ -1,7 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useRef, useState, useEffect } from "react";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas-pro";
 import api from "../lib/axios";
 
 const Arrendamiento = () => {
@@ -89,6 +87,7 @@ const Arrendamiento = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
+  // Validate form completion (excluding optional anexo fields)
   const isFormComplete = Object.entries(formData).every(([key, value]) => {
     if (key.startsWith('anexo') || key === 'anexoPersonasServicios' || key === 'anexoPersonasConciliaciones') {
       return true;
@@ -135,10 +134,12 @@ const Arrendamiento = () => {
     section: "anexoPersonasServicios" | "anexoPersonasConciliaciones",
     index: number
   ) => {
-    setFormData({
-      ...formData,
-      [section]: formData[section].filter((_, i) => i !== index),
-    });
+    if (formData[section].length > 1) {
+      setFormData({
+        ...formData,
+        [section]: formData[section].filter((_, i) => i !== index),
+      });
+    }
   };
 
   const handleSave = async () => {
@@ -162,124 +163,33 @@ const Arrendamiento = () => {
     setErrorMessage(null);
   };
 
-  // Función optimizada para generar el PDF
   const exportToPDF = async () => {
-    const refs = [section1Ref, section2Ref, section3Ref];
-    if (refs.some((ref) => !ref.current)) {
-      setErrorMessage("Error: No se encontraron todas las secciones del contrato.");
+    if (!isFormComplete) {
+      setErrorMessage("Por favor, completa todos los campos del formulario.");
       return;
     }
 
     setIsGeneratingPDF(true);
-    const originalEditingState = isEditing;
-    setIsEditing(false); // Desactivar modo edición para renderizado limpio
 
     try {
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
-      const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
-      const marginTop = 15;
-      const marginBottom = 15;
-      const marginSide = 10;
-      const usableHeight = pageHeight - marginTop - marginBottom;
-      let currentY = marginTop;
-
-      // Esperar a que el DOM se renderice completamente
-      await new Promise((resolve) => {
-        requestAnimationFrame(() => setTimeout(resolve, 200));
+      const response = await api.post('/pdf/generate', { formData }, {
+        responseType: 'blob',
       });
 
-      for (let i = 0; i < refs.length; i++) {
-        const element = refs[i].current!;
-        element.classList.add("pdf-rendering");
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'contrato_arrendamiento.pdf');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
 
-        // Capturar el canvas con alta calidad
-        const canvas = await html2canvas(element, {
-          scale: 3, // Aumentar escala para mejor calidad
-          useCORS: true,
-          logging: false,
-          backgroundColor: "#ffffff",
-          width: element.scrollWidth,
-          height: element.scrollHeight,
-          windowWidth: 1920,
-          windowHeight: 1080,
-        });
-
-        const imgWidth = canvas.width;
-        const imgHeight = canvas.height;
-        const ratio = (pageWidth - 2 * marginSide) / imgWidth;
-        const scaledWidth = imgWidth * ratio;
-        const scaledHeight = imgHeight * ratio;
-
-        // Calcular cuántas páginas necesita esta sección
-        let yOffset = 0;
-        let remainingHeight = scaledHeight;
-
-        while (remainingHeight > 0) {
-          if (currentY >= usableHeight) {
-            pdf.addPage();
-            currentY = marginTop;
-          }
-
-          const clipHeight = Math.min(remainingHeight, usableHeight - currentY);
-          if (clipHeight <= 0) break;
-
-          // Crear un canvas temporal para recortar la imagen
-          const tempCanvas = document.createElement("canvas");
-          tempCanvas.width = canvas.width;
-          tempCanvas.height = (clipHeight / ratio); // Altura en píxeles originales
-          const tempCtx = tempCanvas.getContext("2d")!;
-          tempCtx.drawImage(
-            canvas,
-            0,
-            yOffset / ratio, // Recortar desde el offset
-            canvas.width,
-            clipHeight / ratio,
-            0,
-            0,
-            canvas.width,
-            clipHeight / ratio
-          );
-
-          const imageData = tempCanvas.toDataURL("image/jpeg", 0.95); // Usar JPEG con alta calidad
-          pdf.addImage(
-            imageData,
-            "JPEG",
-            marginSide,
-            currentY,
-            scaledWidth,
-            clipHeight,
-            undefined,
-            "FAST", // Cambiar a FAST para mejor rendimiento
-            0
-          );
-
-          currentY += clipHeight;
-          remainingHeight -= clipHeight;
-          yOffset += clipHeight;
-
-          if (remainingHeight > 0 && currentY >= usableHeight) {
-            pdf.addPage();
-            currentY = marginTop;
-          }
-        }
-
-        element.classList.remove("pdf-rendering");
-
-        // Añadir un pequeño espacio entre secciones
-        currentY += 5;
-        if (currentY >= usableHeight) {
-          pdf.addPage();
-          currentY = marginTop;
-        }
-      }
-
-      pdf.save("contrato_arrendamiento.pdf");
+      setErrorMessage(null);
     } catch (error: any) {
-      console.error("Error generando el PDF:", error);
-      setErrorMessage(`Error al generar el PDF: ${error.message || "Desconocido"}. Revisa la consola para más detalles.`);
+      console.error('Error generating PDF:', error);
+      setErrorMessage('Error al generar el PDF. Por favor, intenta de nuevo.');
     } finally {
-      setIsEditing(originalEditingState);
       setIsGeneratingPDF(false);
     }
   };
@@ -369,6 +279,12 @@ const Arrendamiento = () => {
                 <option value="5">5</option>
               </>
             )}
+            {name === "vigenciaConservacion" && (
+              <>
+                <option value="5">5</option>
+                <option value="10">10</option>
+              </>
+            )}
           </select>
         );
       }
@@ -392,6 +308,7 @@ const Arrendamiento = () => {
     );
   };
 
+  // Effect to clear error message after 5 seconds
   useEffect(() => {
     if (errorMessage) {
       const timer = setTimeout(() => setErrorMessage(null), 5000);
@@ -403,34 +320,25 @@ const Arrendamiento = () => {
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-8 transition-colors duration-300">
       <style>
         {`
-          .pdf-rendering {
-            width: 190mm !important;
-            padding: 10mm !important;
-            box-sizing: border-box !important;
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            font-size: 14px !important;
-            line-height: 1.5 !important;
+          .pdf-section {
+            width: 190mm;
+            padding: 10mm;
+            box-sizing: border-box;
+            background-color: #ffffff;
+            color: #000000;
           }
-          .pdf-rendering input, .pdf-rendering select {
-            border: none !important;
-            background: transparent !important;
-            color: #000000 !important;
-            appearance: none !important;
-            -webkit-appearance: none !important;
-            -moz-appearance: none !important;
-            font-size: 14px !important;
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
           }
-          .pdf-rendering table {
-            border-collapse: collapse !important;
-            font-size: 14px !important;
+          th, td {
+            border: 1px solid #000;
+            padding: 4px;
+            text-align: left;
           }
-          .pdf-rendering th, .pdf-rendering td {
-            border: 1px solid #000000 !important;
-            padding: 4px !important;
-          }
-          .pdf-rendering * {
-            transition: none !important;
+          th {
+            background-color: #f0f0f0;
           }
           @media print {
             .pdf-section {
@@ -442,11 +350,11 @@ const Arrendamiento = () => {
               page-break-inside: avoid;
               margin-bottom: 10mm;
             }
-            .pdf-section h2 {
+            .pdf-section h2, .pdf-section h3 {
               break-after: avoid;
               page-break-after: avoid;
             }
-            .pdf-section p, .pdf-section table {
+            .pdf-section p, .pdf-section table, .pdf-section ol {
               break-inside: avoid;
               page-break-inside: avoid;
             }
@@ -818,7 +726,7 @@ const Arrendamiento = () => {
                 mediante Suplemento fechado y firmado por ambas partes, debiendo
                 la otra parte dar respuesta en un término de quince (15) días.
                 En caso de no dar respuesta se entenderá como aceptado, toda
-                modificación se realizará suscribiendo el correspondiente
+                modificación se realizará suscribiéndose el correspondiente
                 suplemento.
                 <br />
                 8.2 La modificación o rescisión del Contrato no exime a las
@@ -891,9 +799,8 @@ const Arrendamiento = () => {
                 CLÁUSULA No. X.- CALIDAD Y GARANTÍA
               </h2>
               <p className="mt-2">
-                10.1 EL ARRENDADOR garantiza el goce pacífico del bien arrendado
-                a EL ARRENDATARIO por el período de vigencia pactado en el
-                presente contrato.
+                10.1 EL ARRENDADOR garantiza el goce pacífico del bien arrendado a EL
+                ARRENDATARIO por el período de vigencia pactado en el presente contrato.
               </p>
             </section>
 
@@ -906,22 +813,21 @@ const Arrendamiento = () => {
                 reclamación ante el incumplimiento total o parcial de las
                 obligaciones contraídas en el presente contrato.
                 <br />
-                11.2 Las partes convienen en cumplir el presente contrato de
-                buena fe y agotar la vía conciliatoria, con el ánimo de
-                solucionar cualquier discrepancia mediante negociaciones
-                amigables.
+                11.2 Las partes convienen en cumplir el presente contrato de buena
+                fe y agotar la vía conciliatoria, con el ánimo de solucionar
+                cualquier discrepancia mediante negociaciones amigables.
                 <br />
-                11.3 Las reclamaciones deberán hacerse por escrito en el término
-                de 15 días a partir de la fecha en que la obligación debió ser
+                11.3 Las reclamaciones deberán hacerse por escrito en el término de
+                15 días a partir de la fecha en que la obligación debió ser
                 cumplida.
                 <br />
                 11.4 La parte contra la que se presente la reclamación deberá
                 examinarla y dar respuesta de su contenido dentro del término de
-                diez días hábiles siguientes a la fecha en que hubiere recibido
-                la misma, decursado este, se entenderá rechazada y el asunto
-                podrá someterse a la consideración del órgano juzgador del
-                domicilio del demandado y la decisión del mismo será de
-                obligatorio cumplimiento para ambas partes.
+                diez días hábiles siguientes a la fecha en que hubiere recibido la
+                misma, decursado este, se entenderá rechazada y el asunto podrá
+                someterse a la consideración del órgano juzgador del domicilio del
+                demandado y la decisión del mismo será de obligatorio cumplimiento
+                para ambas partes.
               </p>
             </section>
 
@@ -930,16 +836,15 @@ const Arrendamiento = () => {
                 CLÁUSULA No. XII.- LEY APLICABLE
               </h2>
               <p className="mt-2">
-                12.1 El presente contrato se rige según lo dispuesto en el
-                Decreto Ley 304/12, De la Contratación Económica, Decreto
-                310/12, De los Tipos de Contratos y en lo dispuesto en el
-                Decreto Ley 88/24 Sobre las micro, pequeñas y medianas empresas,
-                Decreto Ley 90/24 Sobre el Ejercicio del Trabajo por cuenta
-                propia, Decreto Ley 91/24 De las contravenciones en el Ejercicio
-                del Trabajo Por Cuenta Propia, las Micro, Pequeñas y Medianas
-                empresas privadas y los Titulares de los Proyectos de Desarrollo
-                Local y demás que sean de adecuación emitidos por los organismos
-                competentes.
+                12.1 El presente contrato se rige según lo dispuesto en el Decreto
+                Ley 304/12, De la Contratación Económica, Decreto 310/12, De los
+                Tipos de Contratos y en lo dispuesto en el Decreto Ley 88/24 Sobre
+                las micro, pequeñas y medianas empresas, Decreto Ley 90/24 Sobre el
+                Ejercicio del Trabajo por cuenta propia, Decreto Ley 91/24 De las
+                contravenciones en el Ejercicio del Trabajo Por Cuenta Propia, las
+                Micro, Pequeñas y Medianas empresas privadas y los Titulares de los
+                Proyectos de Desarrollo Local y demás que sean de adecuación
+                emitidos por los organismos competentes.
               </p>
             </section>
 
@@ -954,8 +859,9 @@ const Arrendamiento = () => {
                 prorrogado por acuerdo expreso de las partes lo que se hará
                 constar mediante suplemento al mismo.
                 <br />
-                13.2 Ambas partes conservarán el presente contrato, por un
-                término de {renderField("vigenciaConservacion", "Años")} años.
+                13.2 Ambas partes conservarán el presente contrato, por un término
+                de {renderField("vigenciaConservacion", "Seleccione", "select")}{" "}
+                años.
               </p>
             </section>
 
@@ -965,17 +871,15 @@ const Arrendamiento = () => {
                 ejemplares a un solo tenor y efecto legal en La Habana, a los{" "}
                 {renderField("firmaDia", "Día")} días del mes de{" "}
                 {renderField("firmaMes", "Mes")} de{" "}
-                {renderField("firmaAnio", "Año")}.
+                {renderField("firmaAnio", "Año")} .
               </p>
-              <div className="flex justify-between mt-6">
+              <div className="flex justify-between mt-8">
                 <div>
-                  ___________________
-                  <br />
+                  ___________________<br />
                   EL ARRENDADOR
                 </div>
                 <div>
-                  ___________________
-                  <br />
+                  ___________________<br />
                   EL ARRENDATARIO
                 </div>
               </div>
@@ -987,402 +891,361 @@ const Arrendamiento = () => {
               <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
                 ANEXO II: FICHA DEL CLIENTE
               </h2>
-              <div className="mt-2 space-y-4">
-                <div>
-                  <p>
-                    <strong>Nombre de la entidad:</strong>{" "}
-                    {renderField("anexoEntidadNombre", "Nombre de la entidad")}
-                  </p>
-                  <p>
-                    <strong>Dirección:</strong>{" "}
-                    {renderField("anexoEntidadDireccion", "Dirección")}
-                  </p>
-                  <p>
-                    <strong>Teléfono:</strong>{" "}
-                    {renderField("anexoEntidadTelefono", "Teléfono")}
-                    <span className="ml-4">
-                      <strong>E-mail:</strong>{" "}
-                      {renderField("anexoEntidadEmail", "E-mail", "email")}
-                    </span>
-                  </p>
-                  <p>
-                    <strong>Código Entidad:</strong>{" "}
-                    {renderField("anexoEntidadCodigo", "Código Entidad")}
-                    <span className="ml-4">
-                      <strong>Organismo o Ministerio:</strong>{" "}
-                      {renderField(
-                        "anexoEntidadOrganismo",
-                        "Organismo o Ministerio"
-                      )}
-                    </span>
-                    <span className="ml-4">
-                      <strong>NIT:</strong>{" "}
-                      {renderField("anexoEntidadNIT", "NIT")}
-                    </span>
-                  </p>
-                  <p>
-                    <strong>Cuenta Bancaria CUP:</strong>{" "}
-                    {renderField(
-                      "anexoEntidadCuentaCUP",
-                      "Cuenta Bancaria CUP"
-                    )}
-                    <span className="ml-4">
-                      <strong>Sucursal CUP:</strong>{" "}
-                      {renderField("anexoEntidadSucursalCUP", "Sucursal CUP")}
-                    </span>
-                  </p>
-                  <p>
-                    <strong>Dirección Sucursal CUP:</strong>{" "}
-                    {renderField(
-                      "anexoEntidadSucursalDireccionCUP",
-                      "Dirección Sucursal CUP"
-                    )}
-                  </p>
-                </div>
+              <div>
+                <p>
+                  <strong>Nombre de la entidad:</strong>{" "}
+                  {renderField("anexoEntidadNombre", "Nombre de la entidad")}
+                </p>
+                <p>
+                  <strong>Dirección:</strong>{" "}
+                  {renderField("anexoEntidadDireccion", "Dirección")}
+                </p>
+                <p>
+                  <strong>Teléfono:</strong>{" "}
+                  {renderField("anexoEntidadTelefono", "Teléfono")}{" "}
+                  <span className="ml-4">
+                    <strong>E-mail:</strong>{" "}
+                    {renderField("anexoEntidadEmail", "E-mail", "email")}
+                  </span>
+                </p>
+                <p>
+                  <strong>Código Entidad:</strong>{" "}
+                  {renderField("anexoEntidadCodigo", "Código")}{" "}
+                  <span className="ml-4">
+                    <strong>Organismo o Ministerio:</strong>{" "}
+                    {renderField("anexoEntidadOrganismo", "Organismo")}
+                  </span>{" "}
+                  <span className="ml-4">
+                    <strong>NIT:</strong>{" "}
+                    {renderField("anexoEntidadNIT", "NIT")}
+                  </span>
+                </p>
+                <p>
+                  <strong>Cuenta Bancaria CUP:</strong>{" "}
+                  {renderField("anexoEntidadCuentaCUP", "Cuenta")}{" "}
+                  <span className="ml-4">
+                    <strong>Sucursal CUP:</strong>{" "}
+                    {renderField("anexoEntidadSucursalCUP", "Sucursal")}
+                  </span>
+                </p>
+                <p>
+                  <strong>Dirección Sucursal CUP:</strong>{" "}
+                  {renderField(
+                    "anexoEntidadSucursalDireccionCUP",
+                    "Dirección de la sucursal"
+                  )}
+                </p>
+              </div>
 
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    Personas Autorizadas a solicitar servicios, firma de los
-                    entregables y facturas
-                  </h3>
-                  <table className="w-full border-collapse border border-gray-300 dark:border-gray-700 mt-2">
-                    <thead>
-                      <tr className="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-200">
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Nombre y Apellidos
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Cargo
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Firma
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          No. C. Identidad
-                        </th>
-                        {isEditing && !isGeneratingPDF && (
-                          <th className="border border-gray-300 dark:border-gray-700 p-2">
-                            Acciones
-                          </th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {formData.anexoPersonasServicios.map((persona, index) => (
-                        <tr key={index}>
-                          <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing && !isGeneratingPDF ? (
-                              <input
-                                type="text"
-                                value={persona.nombre}
-                                onChange={(e) =>
-                                  handleArrayChange(
-                                    "anexoPersonasServicios",
-                                    index,
-                                    "nombre",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="Nombre y Apellidos"
-                                className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                              />
-                            ) : (
-                              persona.nombre || "Nombre y Apellidos"
-                            )}
-                          </td>
-                          <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing && !isGeneratingPDF ? (
-                              <input
-                                type="text"
-                                value={persona.cargo}
-                                onChange={(e) =>
-                                  handleArrayChange(
-                                    "anexoPersonasServicios",
-                                    index,
-                                    "cargo",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="Cargo"
-                                className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                              />
-                            ) : (
-                              persona.cargo || "Cargo"
-                            )}
-                          </td>
-                          <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing && !isGeneratingPDF ? (
-                              <input
-                                type="text"
-                                value={persona.firma}
-                                onChange={(e) =>
-                                  handleArrayChange(
-                                    "anexoPersonasServicios",
-                                    index,
-                                    "firma",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="Firma"
-                                className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                              />
-                            ) : (
-                              persona.firma || "Firma"
-                            )}
-                          </td>
-                          <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                            {isEditing && !isGeneratingPDF ? (
-                              <input
-                                type="text"
-                                value={persona.identidad}
-                                onChange={(e) =>
-                                  handleArrayChange(
-                                    "anexoPersonasServicios",
-                                    index,
-                                    "identidad",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="No. C. Identidad"
-                                className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                              />
-                            ) : (
-                              persona.identidad || "No. C. Identidad"
-                            )}
-                          </td>
-                          {isEditing && !isGeneratingPDF && (
-                            <td className="border border-gray-300 dark:border-gray-700 p-2">
-                              <button
-                                onClick={() =>
-                                  removePerson("anexoPersonasServicios", index)
-                                }
-                                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
-                              >
-                                Eliminar
-                              </button>
-                            </td>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mt-4">
+                  Personas Autorizadas a solicitar servicios, firma de los
+                  entregables y facturas
+                </h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nombre y Apellidos</th>
+                      <th>Cargo</th>
+                      <th>Firma</th>
+                      <th>No. C. Identidad</th>
+                      {isEditing && <th>Acciones</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formData.anexoPersonasServicios.map((persona, index) => (
+                      <tr key={index}>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.nombre}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasServicios",
+                                  index,
+                                  "nombre",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Nombre"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.nombre || "Nombre"
                           )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {isEditing && !isGeneratingPDF && (
-                    <button
-                      onClick={() => addPerson("anexoPersonasServicios")}
-                      className="mt-2 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600"
-                    >
-                      Agregar Persona
-                    </button>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    Personas Autorizadas para firmar conciliaciones
-                  </h3>
-                  <table className="w-full border-collapse border border-gray-300 dark:border-gray-700 mt-2">
-                    <thead>
-                      <tr className="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-200">
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Nombre y Apellidos
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Cargo
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          Firma
-                        </th>
-                        <th className="border border-gray-300 dark:border-gray-700 p-2">
-                          No. C. Identidad
-                        </th>
-                        {isEditing && !isGeneratingPDF && (
-                          <th className="border border-gray-300 dark:border-gray-700 p-2">
-                            Acciones
-                          </th>
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.cargo}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasServicios",
+                                  index,
+                                  "cargo",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Cargo"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.cargo || "Cargo"
+                          )}
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.firma}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasServicios",
+                                  index,
+                                  "firma",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Firma"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.firma || "Firma"
+                          )}
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.identidad}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasServicios",
+                                  index,
+                                  "identidad",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Identidad"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.identidad || "Identidad"
+                          )}
+                        </td>
+                        {isEditing && (
+                          <td>
+                            <button
+                              onClick={() =>
+                                removePerson("anexoPersonasServicios", index)
+                              }
+                              disabled={formData.anexoPersonasServicios.length === 1}
+                              className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
                         )}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {formData.anexoPersonasConciliaciones.map(
-                        (persona, index) => (
-                          <tr key={index}>
-                            <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing && !isGeneratingPDF ? (
-                                <input
-                                  type="text"
-                                  value={persona.nombre}
-                                  onChange={(e) =>
-                                    handleArrayChange(
-                                      "anexoPersonasConciliaciones",
-                                      index,
-                                      "nombre",
-                                      e.target.value
-                                    )
-                                  }
-                                  placeholder="Nombre y Apellidos"
-                                  className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                                />
-                              ) : (
-                                persona.nombre || "Nombre y Apellidos"
-                              )}
-                            </td>
-                            <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing && !isGeneratingPDF ? (
-                                <input
-                                  type="text"
-                                  value={persona.cargo}
-                                  onChange={(e) =>
-                                    handleArrayChange(
-                                      "anexoPersonasConciliaciones",
-                                      index,
-                                      "cargo",
-                                      e.target.value
-                                    )
-                                  }
-                                  placeholder="Cargo"
-                                  className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                                />
-                              ) : (
-                                persona.cargo || "Cargo"
-                              )}
-                            </td>
-                            <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing && !isGeneratingPDF ? (
-                                <input
-                                  type="text"
-                                  value={persona.firma}
-                                  onChange={(e) =>
-                                    handleArrayChange(
-                                      "anexoPersonasConciliaciones",
-                                      index,
-                                      "firma",
-                                      e.target.value
-                                    )
-                                  }
-                                  placeholder="Firma"
-                                  className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                                />
-                              ) : (
-                                persona.firma || "Firma"
-                              )}
-                            </td>
-                            <td className="border border-gray-300 dark:border-gray-700 p-2 text-gray-900 dark:text-gray-200">
-                              {isEditing && !isGeneratingPDF ? (
-                                <input
-                                  type="text"
-                                  value={persona.identidad}
-                                  onChange={(e) =>
-                                    handleArrayChange(
-                                      "anexoPersonasConciliaciones",
-                                      index,
-                                      "identidad",
-                                      e.target.value
-                                    )
-                                  }
-                                  placeholder="No. C. Identidad"
-                                  className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
-                                />
-                              ) : (
-                                persona.identidad || "No. C. Identidad"
-                              )}
-                            </td>
-                            {isEditing && !isGeneratingPDF && (
-                              <td className="border border-gray-300 dark:border-gray-700 p-2">
-                                <button
-                                  onClick={() =>
-                                    removePerson(
-                                      "anexoPersonasConciliaciones",
-                                      index
-                                    )
-                                  }
-                                  className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
-                                >
-                                  Eliminar
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                  {isEditing && !isGeneratingPDF && (
-                    <button
-                      onClick={() => addPerson("anexoPersonasConciliaciones")}
-                      className="mt-2 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600"
-                    >
-                      Agregar Persona
-                    </button>
-                  )}
-                </div>
+                    ))}
+                  </tbody>
+                </table>
+                {isEditing && (
+                  <button
+                    onClick={() => addPerson("anexoPersonasServicios")}
+                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Agregar Persona
+                  </button>
+                )}
+              </div>
 
-                <div>
-                  <p>
-                    <strong>
-                      Representante de la Entidad designado para firmar
-                      Contrato:
-                    </strong>{" "}
-                    {renderField("anexoRepresentanteContrato", "Representante")}
-                    <span className="ml-4">
-                      <strong>Cargo que ocupa:</strong>{" "}
-                      {renderField("anexoRepresentanteCargo", "Cargo")}
-                    </span>
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mt-4">
+                  Personas Autorizadas para firmar conciliaciones
+                </h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nombre y Apellidos</th>
+                      <th>Cargo</th>
+                      <th>Firma</th>
+                      <th>No. C. Identidad</th>
+                      {isEditing && <th>Acciones</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formData.anexoPersonasConciliaciones.map((persona, index) => (
+                      <tr key={index}>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.nombre}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasConciliaciones",
+                                  index,
+                                  "nombre",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Nombre"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.nombre || "Nombre"
+                          )}
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.cargo}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasConciliaciones",
+                                  index,
+                                  "cargo",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Cargo"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.cargo || "Cargo"
+                          )}
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.firma}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasConciliaciones",
+                                  index,
+                                  "firma",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Firma"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.firma || "Firma"
+                          )}
+                        </td>
+                        <td>
+                          {isEditing && !isGeneratingPDF ? (
+                            <input
+                              type="text"
+                              value={persona.identidad}
+                              onChange={(e) =>
+                                handleArrayChange(
+                                  "anexoPersonasConciliaciones",
+                                  index,
+                                  "identidad",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Identidad"
+                              className="p-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 rounded w-full"
+                            />
+                          ) : (
+                            persona.identidad || "Identidad"
+                          )}
+                        </td>
+                        {isEditing && (
+                          <td>
+                            <button
+                              onClick={() =>
+                                removePerson("anexoPersonasConciliaciones", index)
+                              }
+                              disabled={
+                                formData.anexoPersonasConciliaciones.length === 1
+                              }
+                              className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {isEditing && (
+                  <button
+                    onClick={() => addPerson("anexoPersonasConciliaciones")}
+                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Agregar Persona
+                  </button>
+                )}
+              </div>
 
-                <div>
-                  <p>
-                    El Director de la entidad o su equivalente declara,
-                    apercibido de la responsabilidad en que incurre, que todos
-                    los datos aquí plasmados son ciertos y que cualquier
-                    variación en alguno de ellos deberá comunicarse de inmediato
-                    a{" "}
-                    {renderField(
-                      "anexoNotificadoNombre",
-                      "Nombre del notificado"
-                    )}{" "}
-                    en su condición de{" "}
-                    {renderField(
-                      "anexoNotificadoCondicion",
-                      "Condición del notificado"
-                    )}
-                    , para evitar cualquier consecuencia que de ello pueda
-                    derivarse.
-                  </p>
-                  <p className="mt-2">
-                    <strong>
-                      Nombres y apellidos del Director de la Entidad o su
-                      equivalente:
-                    </strong>{" "}
-                    {renderField("anexoDirectorNombre", "Nombre del Director")}
-                    <span className="ml-4">
-                      <strong>Cuño:</strong> ____________
-                    </span>
-                  </p>
-                  <p>
-                    <strong>No. Carné de identidad:</strong>{" "}
-                    {renderField("anexoDirectorCarne", "Carné de identidad")}
-                  </p>
-                  <p>
-                    <strong>Firma:</strong> ____________
-                  </p>
-                </div>
+              <div>
+                <p className="mt-2">
+                  <strong>
+                    Representante de la Entidad designado para firmar Contrato:
+                  </strong>{" "}
+                  {renderField(
+                    "anexoRepresentanteContrato",
+                    "Representante"
+                  )}{" "}
+                  <span className="ml-4">
+                    <strong>Cargo que ocupa:</strong>{" "}
+                    {renderField("anexoRepresentanteCargo", "Cargo")}
+                  </span>
+                </p>
+              </div>
 
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    Documentos que deben acompañar a este modelo para conformar
-                    el expediente del cliente:
-                  </h3>
-                  <ol className="list-decimal ml-6 mt-2">
-                    <li>
-                      Resolución de Nombramiento del Director de la entidad.
-                    </li>
-                    <li>
-                      Resolución o documento que faculta a la persona designada
-                      para firmar el Contrato.
-                    </li>
-                  </ol>
-                </div>
+              <div>
+                <p className="mt-2">
+                  El Director de la entidad o su equivalente declara, apercibido
+                  de la responsabilidad en que incurre, que todos los datos aquí
+                  plasmados son ciertos y que cualquier variación en alguno de
+                  ellos deberá comunicarse de inmediato a{" "}
+                  {renderField("anexoNotificadoNombre", "Nombre del notificado")}{" "}
+                  en su condición de{" "}
+                  {renderField("anexoNotificadoCondicion", "Condición")},
+                  para evitar cualquier consecuencia que de ello pueda derivarse.
+                </p>
+                <p>
+                  <strong>
+                    Nombres y apellidos del Director de la Entidad o su
+                    equivalente:
+                  </strong>{" "}
+                  {renderField("anexoDirectorNombre", "Nombre")}{" "}
+                  <span className="ml-4">
+                    <strong>Cuño:</strong> ____________
+                  </span>
+                </p>
+                <p>
+                  <strong>No. Carné de identidad:</strong>{" "}
+                  {renderField("anexoDirectorCarne", "Carné")}
+                </p>
+                <p>
+                  <strong>Firma:</strong> ____________
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mt-4">
+                  Documentos que deben acompañar a este modelo para conformar el
+                  expediente del cliente:
+                </h3>
+                <ol className="list-decimal ml-6">
+                  <li>Resolución de Nombramiento del Director de la entidad.</li>
+                  <li>
+                    Resolución o documento que faculta a la persona designada para
+                    firmar el Contrato.
+                  </li>
+                </ol>
               </div>
             </section>
           </div>
