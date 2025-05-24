@@ -1,11 +1,10 @@
 import { useRef, useState } from "react";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas-pro";
+import axios from "axios";
 
 const ContratoComodato = () => {
-  const section1Ref = useRef<HTMLDivElement>(null); // DE UNA PARTE to 2. OBLIGACIONES
-  const section2Ref = useRef<HTMLDivElement>(null); // 3. CESION to 6. SOLUCION DE CONFLICTOS
-  const section3Ref = useRef<HTMLDivElement>(null); // 7. AVISO to ANEXO 1
+  const section1Ref = useRef<HTMLDivElement>(null);
+  const section2Ref = useRef<HTMLDivElement>(null);
+  const section3Ref = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     comodanteNombre: "",
     comodanteNacionalidad: "",
@@ -91,7 +90,7 @@ const ContratoComodato = () => {
   };
 
   const isFormComplete = () => {
-    const requiredFields = Object.entries(formData).every(([key, value]) => {
+    return Object.entries(formData).every(([key, value]) => {
       if (key === "anexoBienes") {
         return formData.anexoBienes.every(
           (bien) =>
@@ -104,48 +103,29 @@ const ContratoComodato = () => {
       }
       return typeof value === "string" ? value.trim() !== "" : true;
     });
-    return requiredFields;
   };
 
   const exportToPDF = async () => {
-    const refs = [section1Ref, section2Ref, section3Ref];
-    if (refs.some((ref) => !ref.current)) {
-      alert("Error: No se encontraron todas las secciones del contrato.");
+    if (!isFormComplete()) {
+      alert("Por favor, completa todos los campos requeridos.");
       return;
     }
 
     try {
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+      const response = await axios.post(
+        'http://localhost:3000/pdf/generate-comodato',
+        { formData },
+        { responseType: 'blob' }
+      );
 
-      for (let i = 0; i < refs.length; i++) {
-        const element = refs[i].current!;
-        const canvas = await html2canvas(element, {
-          scale: 2,
-          useCORS: true,
-          logging: true,
-          backgroundColor: "#ffffff",
-          width: element.scrollWidth,
-          height: element.scrollHeight,
-        });
-
-        const imageData = canvas.toDataURL("image/png");
-        const imgWidth = canvas.width;
-        const imgHeight = canvas.height;
-        const ratio = pageWidth / imgWidth;
-        const scaledWidth = imgWidth * ratio;
-        const scaledHeight = imgHeight * ratio;
-
-        if (i > 0) {
-          pdf.addPage();
-        }
-
-        pdf.setFont("helvetica");
-        pdf.setFontSize(14);
-        pdf.addImage(imageData, "PNG", 0, 0, scaledWidth, scaledHeight);
-      }
-
-      pdf.save("contrato_comodato.pdf");
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'contrato_comodato.pdf');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Error generando el PDF:", error);
       alert("Error al generar el PDF. Revisa la consola para más detalles.");
@@ -195,7 +175,7 @@ const ContratoComodato = () => {
           ) : (
             <button
               onClick={handleEdit}
-              className="px-4 py-2 spokeswoman-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+              className="px-4 py-2 rounded-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
             >
               Editar
             </button>
@@ -250,8 +230,8 @@ const ContratoComodato = () => {
                 {renderField("comodatarioProvincia", "Provincia")}, de
                 nacionalidad{" "}
                 {renderField("comodatarioNacionalidad", "Nacionalidad")}, código
-                REEUP y NIT: {renderField("comodatarioREEUPNIT", "REEUP y NIT")}
-                , Inscripción Registro Mercantil Libro{" "}
+                REEUP y NIT: {renderField("comodatarioREEUPNIT", "REEUP y NIT")},
+                Inscripción Registro Mercantil Libro{" "}
                 {renderField("comodatarioLibro", "Libro")}, Tomo{" "}
                 {renderField("comodatarioTomo", "Tomo")}, Folio{" "}
                 {renderField("comodatarioFolio", "Folio")}, Hoja{" "}
@@ -277,7 +257,7 @@ const ContratoComodato = () => {
                 AMBAS PARTES
               </h2>
               <p className="mt-2">
-                Reconociéndose respectivamente su capacidad y representación con
+                Reconociéndose respectivamente la capacidad y representación con
                 que comparecen convienen suscribir el presente Contrato bajo los
                 términos y condiciones siguientes:
               </p>
@@ -347,7 +327,7 @@ const ContratoComodato = () => {
 
           <div ref={section2Ref} className="pdf-section bg-white p-4">
             <section>
-              <h2 className="text-xl font-semibold text-gray- personally-800 dark:text-gray-200">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
                 3. CESIÓN
               </h2>
               <p className="mt-2">
@@ -693,8 +673,12 @@ const ContratoComodato = () => {
                         <td className="border border-gray-300 dark:border-gray-700 p-2">
                           <button
                             onClick={() => removeAnexoRow(index)}
-                            disabled={formData.anexoBienes.length === 1}
-                            className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
+                            disabled={formData.anexoBienes.length <= 1}
+                            className={`px-2 py-1 rounded-md text-white ${
+                              formData.anexoBienes.length <= 1
+                                ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
+                                : "bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600"
+                            }`}
                           >
                             Eliminar
                           </button>
@@ -705,12 +689,14 @@ const ContratoComodato = () => {
                 </tbody>
               </table>
               {isEditing && (
-                <button
-                  onClick={addAnexoRow}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Agregar Fila
-                </button>
+                <div className="mt-4">
+                  <button
+                    onClick={addAnexoRow}
+                    className="px-4 py-2 rounded-md text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600"
+                  >
+                    Agregar Fila
+                  </button>
+                </div>
               )}
               <div className="flex justify-between mt-6">
                 <div>
